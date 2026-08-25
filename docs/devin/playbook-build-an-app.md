@@ -43,7 +43,9 @@ A paragraph of intent in risk terms, e.g.:
 7. **Wire it up**: a `dev:<name>` script in the root `package.json` — that is all. The console
    launcher discovers every `apps/*/app.json` automatically, so do **not** edit
    `apps/console/src/Launcher.tsx` or any central list. The boundary check needs no wiring either;
-   it scans every folder under `apps/`.
+   it scans every folder under `apps/`. Restart `npm run dev` after adding the folder: the new
+   app needs its dev server, and the console's Vite watcher only re-globs `app.json` files on
+   startup.
 8. **Verify** with `npm run lint && npm run typecheck && npm test`, then exercise the app in the
    browser as each seeded role, including at least one denial and one approval path. `npm run lint`
    also fails if this change touched the platform, which is the mechanical form of the rule above.

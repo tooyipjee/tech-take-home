@@ -136,7 +136,9 @@ deployable. The console is not an app either — it is the platform's own screen
 (name, url, scopes). Add a `dev:<name>` script at the root, and that is the whole ceremony — the
 launcher discovers every `apps/*/app.json` and the boundary check picks up every folder under
 `apps/` automatically, so the new app shows up on the launcher and is held to `@platform/sdk`
-from its first commit without anyone remembering to list it.
+from its first commit without anyone remembering to list it. Restart `npm run dev` after adding
+the folder: the new app needs its dev server, and the console's Vite watcher only re-globs
+`app.json` files on startup.
 
 ## Scripts
 
