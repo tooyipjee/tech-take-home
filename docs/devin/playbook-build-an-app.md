@@ -82,8 +82,16 @@ in app code is the failure this playbook exists to prevent.
     the tile appears on the console launcher — offered to a role that holds `requiredScopes`,
     locked for one that does not.
 11. **Open a PR** describing which existing capabilities the app composes and which outcomes it
-    renders. If the diff touches anything outside `apps/<app-name>/`, explain why; the tier check
-    will already have complained.
+    renders, and **label it `tier-1: app`** (CI applies the label too, from the paths in the diff
+    — `npm run lint` prints which one it will be). If the label comes out as `tier-2: platform` or
+    `tier-3: infrastructure`, the change is not the job this playbook was given: say so rather than
+    merging it as an app.
+
+    | Label | Means | If your app PR gets it |
+    | --- | --- | --- |
+    | `tier-1: app` | Only app folders changed | Expected — review is "does the screen do the job?" |
+    | `tier-2: platform` | The kernel, capabilities, migrations, the SDK or the checks changed | Stop; that is the other playbook, with a change record and adversarial tests |
+    | `tier-3: infrastructure` | CI, the API host, the console shell or the build changed | Stop; infrastructure is elevated and agreed with a platform owner first |
 
 ## Hard rules
 

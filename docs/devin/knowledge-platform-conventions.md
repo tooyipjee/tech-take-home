@@ -24,12 +24,22 @@ what the launcher uses to offer or lock the tile). `npm run lint` checks all of 
 that every scope named is one some role actually holds — a scope nobody can be granted means a
 permanently locked tile, and is a tier-2 escalation rather than a manifest edit.
 
-**Two tiers of work.** Building an app on top of the existing capabilities and invariants is tier 1
+**Three tiers of work, and every PR carries the label.** Building an app on top of the existing
+capabilities and invariants is tier 1, `tier-1: app`
 (`docs/devin/playbook-build-an-app.md`). Changing the kernel, the invariants, a migration, the
-capability set, the SDK or the check scripts is tier 2
+capability set, the SDK or the check scripts is tier 2, `tier-2: platform`
 (`docs/devin/playbook-extend-the-platform.md`): more tests, a change record under
-`docs/platform-changes/`, and an explicit human review. `npm run lint` enforces the boundary —
-a platform edit with no change record fails.
+`docs/platform-changes/`, and an explicit human review. Changing CI, the API host, the console
+shell and launcher, the build tooling or the root configs is tier 3, `tier-3: infrastructure` —
+elevated work owned by the platform team, with no playbook on purpose; split it out of an app or
+capability PR, or agree it with a platform owner first.
+
+`npm run lint` enforces the tier-2 boundary (a platform edit with no change record fails), prints
+the tier it detected and the label to apply, and `node scripts/check-tier.mjs --label` prints the
+label alone. `.github/workflows/tier-label.yml` applies it to the pull request, creating the
+labels on first use. The highest tier the diff reaches wins, so a PR touching CI and an app is an
+infrastructure PR. Tier 3 is labelled, not blocked: a script cannot tell who you are, and
+pretending otherwise would make a social boundary look mechanical.
 
 **Which tier a request is.** Only existing verbs, new UI → tier 1. A capability, scope, table,
 column, seed row, ceiling, rate or approval threshold that does not exist → tier 2 first, then

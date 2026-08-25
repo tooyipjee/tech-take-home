@@ -43,9 +43,10 @@ because four-eyes plus a compliance-only approval tier means a request raised by
 could never be cleared. Tile availability is presentation only; the runtime re-checks scopes on
 every capability call.
 
-## Drive it
+## Watch it refuse things
 
-Each row is a rule being enforced somewhere the app can't reach:
+The demo is not the happy path. Each row below is a rule being enforced somewhere the app cannot
+reach it — work down the list in the console and the KYC queue:
 
 | Do this | What happens | Enforced by |
 | --- | --- | --- |
@@ -61,6 +62,48 @@ Each row is a rule being enforced somewhere the app can't reach:
 
 The **Audit log** tab (as Sam) is the whole story: every call, its outcome, and who made it —
 including the refusals.
+
+## The three tiers
+
+Every change to this repository is one of three kinds, and the kind decides how much review it
+gets. Each PR carries the matching label.
+
+| | **Tier 1 — build an app** | **Tier 2 — extend the platform** | **Tier 3 — change the infrastructure** |
+| --- | --- | --- | --- |
+| Label | `tier-1: app` | `tier-2: platform` | `tier-3: infrastructure` |
+| Touches | `apps/<app-name>/` | kernel, capabilities, migrations, `DataSource`, SDK, the check scripts | CI, the console shell and launcher, the API host, build tooling, the environment |
+| Does what | Composes capabilities and invariants that already exist | Adds or changes what the platform can promise | Changes how the whole thing is built, shipped and checked |
+| Written by | Devin, unsupervised | Devin from a human spec | Elevated humans, with Devin assisting |
+| Reviewed for | Does the screen do the job? | What can no longer be proved, and what now can? | Everything downstream: it changes every tier below it |
+| Also required | — | Adversarial database tests and a change record under `docs/platform-changes/` | Same, plus agreement from someone who owns the platform |
+| Held to it by | `npm run lint` fails if an app imports the kernel, the database or a capability handler, or if its `app.json` claims a scope no role holds | `npm run lint` fails if a platform edit has no change record; `npm test` fails if a derived invariant has no test attacking it | Convention and review — deliberately not automated |
+
+The point of the split is that **tier 1 is cheap because tier 2 was expensive**. An app cannot
+weaken a guarantee, so app work needs no ceremony; the work that *can* weaken one gets all of it.
+When a tier-1 request needs a verb that does not exist, the correct outcome is to stop and escalate
+— never to solve it in app code.
+
+`npm run lint` prints the tier it detected and the label to apply, so the classification is not a
+judgement call at PR time.
+
+## The playbooks
+
+Devin writes the apps, so the playbooks *are* the interface to this repository. There is one per
+tier:
+
+- **[Tier 1 — build an app](docs/devin/playbook-build-an-app.md).** Starts by deciding whether the
+  request is tier 1 at all, maps every screen action to an existing capability, and refuses to
+  invent one. The output is a folder under `apps/` and a PR labelled `tier-1: app`.
+- **[Tier 2 — extend the platform](docs/devin/playbook-extend-the-platform.md).** The only route by
+  which a capability, scope, migration or invariant may change: spec first, invariants named in
+  English before any SQL, declaration over hand-written rules, adversarial tests, a change record,
+  human sign-off. The output is a PR labelled `tier-2: platform`.
+- Tier 3 has no playbook on purpose. Infrastructure changes are agreed with a platform owner first.
+
+[Two apps, two tiers](docs/devin/demo-two-apps.md) works through what this means for the next two
+apps: a feature-flag admin is a cheap tier-2 extension followed by a tier-1 screen; a refunds
+dashboard is the expensive one, because money moving means a ceiling, a threshold approval and a
+conservation invariant.
 
 ## Test it
 
@@ -125,19 +168,6 @@ as a postcondition inside the writing transaction (fails → the effect rolls ba
 audited), and by a reconciler on a timer (fails → the capabilities that rule guards are halted).
 Why three: see [ADR 0006](docs/adr/0006-invariants-are-enforced-three-times.md).
 
-## Two tiers of change
-
-|  | Tier 1 — build an app | Tier 2 — extend the platform |
-| --- | --- | --- |
-| May touch | `apps/<app-name>/*`, docs | kernel, invariants, migrations, capabilities, SDK |
-| Uses | existing capabilities and rules | defines new ones |
-| Review | does the screen do the job? | what can no longer be proved, and what now can? |
-| Also required | — | adversarial DB tests, a change record, human sign-off |
-| Enforced by | `npm run lint` fails if an app imports the platform | `npm run lint` fails if a platform edit has no change record; `npm test` fails if a derived rule has no test attacking it |
-
-Most work should be fast and unsupervised; the work that can weaken a guarantee should be
-neither.
-
 ## Layout
 
 | Path | What it is |
@@ -186,11 +216,9 @@ and the console's Vite watcher only re-globs `app.json` files on startup.
 - [KYC review queue](docs/apps/kyc-review-queue.md) — the app, its capabilities and its policy
 - [Authoring a capability](docs/authoring-a-capability.md) — the workflow humans and Devin share
 - [Decisions](docs/adr) — why it is built this way, and what was deliberately not built
-- [Playbook, tier 1](docs/devin/playbook-build-an-app.md) — build an app from what exists
-- [Playbook, tier 2](docs/devin/playbook-extend-the-platform.md) — the only route that may change
-  a rule, a capability or a migration
-- [Two apps, two tiers](docs/devin/demo-two-apps.md) — which next app needs only tier 1, which
-  needs the platform extended first, and why
+- [Playbook, tier 1](docs/devin/playbook-build-an-app.md) ·
+  [Playbook, tier 2](docs/devin/playbook-extend-the-platform.md) ·
+  [Two apps, two tiers](docs/devin/demo-two-apps.md)
 - [Platform changes](docs/platform-changes) — what each tier-2 change did to the guarantees
 
 ## Status

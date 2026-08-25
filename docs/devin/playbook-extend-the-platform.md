@@ -127,6 +127,16 @@ has failed even if the code is correct.
 14. **Open the PR and say what changed about the guarantees.** Lead the description with the
     invariant table from the change record and the policy declarations, then ask for review
     explicitly. Do not merge on green CI alone.
+15. **Label it `tier-2: platform`.** CI derives the label from the paths in the diff and applies it,
+    and `npm run lint` prints the same answer locally, so it is a check on your classification
+    rather than a decision you make. The label is what tells a reviewer this PR changes what the
+    platform can promise, so it is read by a human, not merely sorted by one.
+
+    If the label comes out `tier-3: infrastructure`, the diff also touched CI, the API host, the
+    console shell and launcher, or the build. That is elevated work reserved for people who own the
+    platform: split the infrastructure change out, or stop and agree it with them first. There is
+    no tier-3 playbook on purpose — a change to how the proving happens is worth more to an attacker
+    than a change to what is proved, and it is not work to be done unsupervised.
 
 ## Hard rules
 
