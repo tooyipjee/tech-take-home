@@ -52,6 +52,21 @@ export function resolveTier(capability: CapabilityName, target: CaseDetail): App
   return 'none';
 }
 
+/** Why the runtime will hold this call, phrased from the case rather than from the button. */
+export function approvalReason(capability: CapabilityName, target: CaseDetail): string | null {
+  const tier = resolveTier(capability, target);
+  if (tier === 'none') return null;
+  if (capability === 'kyc.case.sar.file') {
+    return 'Filing a SAR is irreversible: a compliance officer other than you must always approve it.';
+  }
+  if (tier === 'dual_compliance') {
+    return 'Unresolved sanctions exposure: a compliance officer must approve before this takes effect.';
+  }
+  return target.riskBand === 'high'
+    ? 'High-risk case: a second reviewer holding kyc_lead must approve before this takes effect.'
+    : 'Unresolved screening hit: a second reviewer holding kyc_lead must approve before this takes effect.';
+}
+
 const RATE_WINDOW_MS = 3_600_000;
 
 export class MockKernel implements CapabilityClient {
@@ -217,6 +232,7 @@ export class MockKernel implements CapabilityClient {
       caseReference: target.reference,
       applicantName: target.applicantName,
       requestedBy: this.actor.displayName,
+      requestedById: this.actor.userId,
       requestedAt: new Date().toISOString(),
       tier,
       reason,
@@ -230,6 +246,7 @@ export class MockKernel implements CapabilityClient {
     this.appendEvent(target, {
       actor: this.actor.displayName,
       summary: `${summary} — held for ${tier === 'dual_compliance' ? 'compliance officer' : 'lead'} approval.`,
+
       capability,
       auditId,
     });
@@ -237,10 +254,7 @@ export class MockKernel implements CapabilityClient {
       status: 'pending_approval',
       auditId,
       approvalRequestId: request.id,
-      message:
-        tier === 'dual_compliance'
-          ? 'Held: unresolved sanctions exposure requires a compliance officer to approve.'
-          : 'Held: high-risk decisions require a second reviewer holding kyc_lead.',
+      message: approvalReason(capability, target) ?? 'Held for a second human.',
     };
   }
 
@@ -406,7 +420,7 @@ export class MockKernel implements CapabilityClient {
         if (!request) deny('not_found', 'existence', 'Approval request not found.');
         const found = request as ApprovalRequest;
         if (found.status !== 'pending') deny('invalid_input', 'state', 'This request was already decided.');
-        if (found.requestedBy === this.actor.displayName) {
+        if (found.requestedById === this.actor.userId) {
           deny('self_approval', 'four-eyes', 'You cannot approve a request you raised.');
         }
         if (found.tier === 'dual_compliance' && this.actor.role !== 'compliance_officer') {

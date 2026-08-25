@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useCapability, usePlatform } from '../platform/PlatformProvider';
 import type { CaseDetail, MaskedIdentity, RejectReasonCode } from '../platform/contracts';
 import { CAPABILITY_POLICIES, REJECT_REASONS } from '../platform/contracts';
-import { resolveTier } from '../platform/mock/kernel';
+import { approvalReason } from '../platform/mock/kernel';
 import { Empty, PolicyChip, RiskPill, StatusPill, relativeTime } from '../components/ui';
 
 const INFO_ITEMS = ['Proof of address (<90 days)', 'Source of funds statement', 'Selfie liveness check', 'Business registration'];
@@ -238,7 +238,7 @@ function DecisionCard({ detail }: { detail: CaseDetail }) {
           : mode === 'escalate'
             ? 'kyc.case.escalate'
             : 'kyc.case.sar.file';
-  const tier = resolveTier(capability, detail);
+  const heldReason = approvalReason(capability, detail);
   const holdsScope = actor.scopes.includes(CAPABILITY_POLICIES[capability].scope);
 
   const submit = async () => {
@@ -309,13 +309,7 @@ function DecisionCard({ detail }: { detail: CaseDetail }) {
         </p>
       )}
 
-      {tier !== 'none' && (
-        <p className="banner banner--held">
-          {tier === 'dual_compliance'
-            ? 'Unresolved sanctions exposure: a compliance officer must approve before this takes effect.'
-            : 'High-risk case: a second reviewer holding kyc_lead must approve before this takes effect.'}
-        </p>
-      )}
+      {heldReason && <p className="banner banner--held">{heldReason}</p>}
 
       {mode === 'reject' && (
         <label className="field">

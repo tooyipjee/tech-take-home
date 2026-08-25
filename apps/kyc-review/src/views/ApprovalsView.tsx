@@ -57,7 +57,7 @@ function ApprovalRow({
 }) {
   const { invoke, actor } = usePlatform();
   const [note, setNote] = useState('');
-  const isRequester = request.requestedBy === actor.displayName;
+  const isRequester = request.requestedById === actor.userId;
 
   const decide = (decision: 'approve' | 'deny') =>
     invoke(

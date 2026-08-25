@@ -38,7 +38,9 @@ The demo is arranged so the guardrails are visible rather than described:
   double-click is one effect.
 - **Audit tab** — every one of the above, including the denials, with the policy that produced them.
 
-The role switcher in the top bar is the dev auth stub (`x-actor-role`), standing in for SSO.
+The identity switcher in the top bar is the dev auth stub (`x-actor-id` / `x-actor-role`), standing in for
+SSO. There are two compliance officers in the directory, because four-eyes plus a compliance-only tier
+means a SAR raised by the only officer could never be cleared.
 
 ## Layout
 

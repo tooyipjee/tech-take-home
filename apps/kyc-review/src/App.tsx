@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { PlatformProvider, usePlatform } from './platform/PlatformProvider';
-import type { Role } from './platform/contracts';
 import { QueueView } from './views/QueueView';
 import { CaseView } from './views/CaseView';
 import { ApprovalsView } from './views/ApprovalsView';
@@ -8,11 +7,11 @@ import { AuditView } from './views/AuditView';
 
 type Tab = 'queue' | 'approvals' | 'audit';
 
-const ROLES: { role: Role; label: string }[] = [
-  { role: 'kyc_reviewer', label: 'Reviewer (Priya)' },
-  { role: 'kyc_lead', label: 'Lead (Tom)' },
-  { role: 'compliance_officer', label: 'Compliance (Dana)' },
-];
+const ROLE_LABEL: Record<string, string> = {
+  kyc_reviewer: 'Reviewer',
+  kyc_lead: 'Lead',
+  compliance_officer: 'Compliance',
+};
 
 export default function App() {
   return (
@@ -23,7 +22,7 @@ export default function App() {
 }
 
 function Shell() {
-  const { actor, setRole, adapter } = usePlatform();
+  const { actor, directory, setActorId, adapter } = usePlatform();
   const [tab, setTab] = useState<Tab>('queue');
   const [caseId, setCaseId] = useState<string | null>(null);
 
@@ -64,10 +63,10 @@ function Shell() {
           <span className={`pill pill--adapter-${adapter}`}>{adapter} kernel</span>
           <label>
             Acting as
-            <select value={actor.role} onChange={(event) => setRole(event.target.value as Role)}>
-              {ROLES.map((entry) => (
-                <option key={entry.role} value={entry.role}>
-                  {entry.label}
+            <select value={actor.userId} onChange={(event) => setActorId(event.target.value)}>
+              {directory.map((entry) => (
+                <option key={entry.userId} value={entry.userId}>
+                  {ROLE_LABEL[entry.role]} · {entry.displayName}
                 </option>
               ))}
             </select>

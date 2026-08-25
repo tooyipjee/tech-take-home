@@ -1,29 +1,39 @@
-import type { Actor, CaseDetail, Role } from '../contracts';
+import type { Actor, CaseDetail } from '../contracts';
 import { ROLE_SCOPES } from '../contracts';
 
 const now = Date.now();
 const hours = (n: number) => new Date(now + n * 3_600_000).toISOString();
 
-export const ACTORS: Record<Role, Actor> = {
-  kyc_reviewer: {
+/**
+ * Two compliance officers, because four-eyes plus a compliance-only tier means a SAR raised by the
+ * only officer in the directory could never be cleared.
+ */
+export const ACTOR_DIRECTORY: Actor[] = [
+  {
     userId: 'u_reviewer',
     displayName: 'Priya Raman',
     role: 'kyc_reviewer',
     scopes: ROLE_SCOPES.kyc_reviewer,
   },
-  kyc_lead: {
+  {
     userId: 'u_lead',
     displayName: 'Tom Okafor',
     role: 'kyc_lead',
     scopes: ROLE_SCOPES.kyc_lead,
   },
-  compliance_officer: {
+  {
     userId: 'u_compliance',
     displayName: 'Dana Whitfield',
     role: 'compliance_officer',
     scopes: ROLE_SCOPES.compliance_officer,
   },
-};
+  {
+    userId: 'u_compliance_2',
+    displayName: 'Samir Haddad',
+    role: 'compliance_officer',
+    scopes: ROLE_SCOPES.compliance_officer,
+  },
+];
 
 function mask(value: string, keep = 4): string {
   const tail = value.slice(-keep);

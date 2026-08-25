@@ -108,6 +108,7 @@ export interface ApprovalRequest {
   caseReference: string;
   applicantName: string;
   requestedBy: string;
+  requestedById: string;
   requestedAt: string;
   tier: Exclude<ApprovalTier, 'none'>;
   reason: string;
