@@ -34,7 +34,7 @@ export function Launcher() {
       <p className="hint">
         Each app is a folder in <code>apps/</code> with its own dev server, talking to this platform
         through <code>@platform/sdk</code>. The console itself is not an app: it is approvals, audit,
-        the registry and tenet health.
+        the registry and invariant health.
       </p>
       <table>
         <thead>

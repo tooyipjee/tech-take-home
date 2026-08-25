@@ -6,7 +6,7 @@ import type { Actor, CapabilityOutput, CapabilityName, KycApproval } from './con
  * The only way this app reaches the outside world.
  *
  * It is the part of the platform's `PlatformClient` this app uses — same outcomes, same approval
- * and audit surfaces, minus tenet administration, which is the console's job — with one addition
+ * and audit surfaces, minus invariant administration, which is the console's job — with one addition
  * the console does not need: the acting identity can change without a reload.
  */
 type UsedSurface = Pick<

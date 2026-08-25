@@ -10,7 +10,7 @@ Structural, so that "build an internal tool" means "add a folder under `apps/`":
   console (`apps/console/src/apps/*`) are now standalone apps with their own
   `package.json`, Vite config and port. `apps/kyc-review` already was one.
 - `apps/console` is no longer a host for apps: it is the platform surface
-  (approvals, audit, registry, tenets) plus a launcher that links to each app.
+  (approvals, audit, registry, invariants) plus a launcher that links to each app.
 - `packages/app-kit` — what an app gets besides the SDK: the client bound to the
   acting user, the identity switcher, the outcome banner and the stylesheet. It
   imports `@platform/sdk` and nothing deeper, so it cannot widen what an app can
@@ -30,13 +30,13 @@ Carried in the same change, from moving the KYC app onto the SDK:
 - `packages/kernel/src/auth.ts`, `packages/db/src/seed.ts` — KYC scopes on the three
   roles, and a second compliance admin so a SAR approval has someone to go to.
 
-## Tenets affected
+## Invariants affected
 
 None weakened or removed.
 
 `approvals.decided_by_a_second_person` is strengthened in the runtime: previously a
 holder of the generic `approvals:decide` scope could decide any held invocation,
-including one whose capability declares a stronger `approverScope`. The tenet
+including one whose capability declares a stronger `approverScope`. The invariant
 itself already spoke in terms of the declared scope; the runtime now agrees with
 it before the fact rather than the reconciler catching it after.
 
@@ -47,7 +47,7 @@ client — so app authors can extend the shell without a change record. If it ev
 grows something that decides what an app may do, it belongs behind the SDK
 instead.
 
-Not affected: nothing here touches the schema, the derived tenet set, the
+Not affected: nothing here touches the schema, the derived invariant set, the
 reconciler, or any capability's declaration.
 
 ## How it was verified
