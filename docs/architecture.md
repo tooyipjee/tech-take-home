@@ -1,5 +1,57 @@
 # Architecture
 
+## The block diagram
+
+One framework, one database, several apps — and one guard layer between them.
+
+```mermaid
+flowchart TB
+  subgraph appsbox["apps/ — browser UI, no database access"]
+    kyc["kyc-review<br/>generated"]
+    sar["sar-desk<br/>generated"]
+    console["console<br/>the platform's own screens<br/>+ the launcher"]
+  end
+
+  sdk["@rangka/sdk · @rangka/app-kit<br/>typed invoke() over HTTP"]
+  api["apps/api — Fastify host<br/>resolvePrincipal(x-platform-user)"]
+
+  subgraph guard["packages/kernel — the guard layer"]
+    direction TB
+    p1["1 resolve capability"] --> p2["2 authorise: declared scope"]
+    p2 --> p3["3 validate input · clamp maxRows"]
+    p3 --> p4["4 require idempotency key"]
+    p4 --> p5["5 rate limit, from the audit log"]
+    p5 --> p6["6 amount ceiling"]
+    p6 --> p7["7 approval → pending_approval"]
+    p7 --> p8["8 execute in one transaction"]
+    p8 --> p9["9 audit, same transaction"]
+    p9 --> p10["10 prove invariants, or roll back"]
+  end
+
+  caps["packages/capabilities<br/>declared policy + handler<br/>reviewed line by line"]
+  ds["packages/db — DataSource<br/>every query, stamped with invocation_id"]
+  pg[("Postgres<br/>platform state: users, registry, approvals,<br/>idempotency keys, append-only audit_log<br/>business data: kyc_* + effect tables<br/>constraints · triggers")]
+  recon["reconciler, every 15s<br/>re-derives every invariant"]
+  halts[("capability_halts<br/>invariant_runs")]
+
+  kyc --> sdk
+  sar --> sdk
+  console --> sdk
+  sdk --> api
+  api --> p1
+  p8 --> caps
+  caps --> ds
+  ds --> pg
+  pg --> recon
+  recon --> halts
+  halts -.->|"writes on a guarded<br/>capability return halted"| p1
+```
+
+Read it as three claims. An app can say *what* it wants and nothing else. Everything between the
+app and the row is fixed code the app cannot skip, reorder or configure. And the last box is
+continuous: the same statements the runtime proved before commit are re-proved afterwards over
+committed data, so drift that arrived by some other path still halts the capability it affects.
+
 ## The one decision everything follows from
 
 Apps are generated. Review is the only human gate, and review is fallible. So the properties

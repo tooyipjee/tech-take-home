@@ -73,8 +73,8 @@ cannot write a row that is not attributable to an audited invocation. New querie
 `packages/db/src/datasource.ts`, never inline in a handler.
 
 **Outcomes an app must render.** `ok`, `replayed`, `pending_approval`, `denied_scope`,
-`denied_limit`, `rate_limited`, `invalid_input`, `not_found`, `halted`, `invariant_violation`,
-`error`.
+`denied_limit`, `rate_limited`, `invalid_input`, `not_found`, `conflict`, `halted`,
+`invariant_violation`, `error`.
 
 **Seeded principals.** `u_agent` (agent: `kyc:read`, `kyc:pii`, `kyc:review`), `u_supervisor`
 (supervisor: adds `kyc:decide`, `approvals:*`, `audit:read`), `u_admin` and `u_admin_2` (admins:
@@ -86,7 +86,7 @@ eyes). All roles have `invariants:read`. Every app header switches acting user; 
 and never the requester themself.
 
 **Commands.** `npm run setup` (Postgres + migrate + seed) · `npm run dev` (api :8080 · console
-:5173 · kyc :5174 — every app folder, discovered; one alone with
+:5173 · kyc :5174 · sar desk :5177 — every app folder, discovered; one alone with
 `npx vite --config apps/<name>/vite.config.ts` plus `npm run dev:api`) · `npm run lint`
 (boundary, manifest and tier checks) · `npm run typecheck` (the platform, then each app against
 its own tsconfig) · `npm test` ·

@@ -11,7 +11,7 @@ So the demo needs one app of each kind. This document fixes which is which, and 
 
 | App | Tier | Why |
 | --- | --- | --- |
-| A second view over `kyc.*` — compliance oversight, SAR desk, audit explorer | **1 only** | Every verb it needs already exists |
+| A second view over `kyc.*` — `apps/sar-desk`, already built | **1 only** | Every verb it needs already existed |
 | **Feature flag admin** | **2, then 1** | No capability, no table, no `flags:*` scope exists — but nothing it does moves money |
 | **Refunds dashboard** | **2, then 1** | Same, plus money: a ceiling, an amount-threshold approval, and a conservation invariant |
 
@@ -20,7 +20,8 @@ Two honest points to make on stage rather than hide:
 1. **Neither flags nor refunds is a tier-1 job today.** The repository contains exactly one domain,
    KYC. Any new domain begins in the platform, and that is the design working, not a gap: the app
    layer physically cannot mint a verb. The only genuinely tier-1 app right now is another screen
-   over the KYC verbs — which is worth building first precisely because it takes minutes.
+   over the KYC verbs — `apps/sar-desk` is exactly that, and it is the evidence for the claim: three
+   existing verbs, no migration, no capability, no change record.
 2. **Feature flags is the easier of the two**, and by a wide margin.
 
 ## Why feature flags is the easy tier-2
@@ -59,7 +60,8 @@ is repaired — at the cost of being the longer build.
 
 1. **Show the platform, not an app.** Console → Capability registry and Invariants: 29 statements,
    none hand-written, each derived from a declaration. Then the KYC app refusing something.
-2. **Tier 1, live.** Build a second KYC-domain screen from the playbook. Point out what the
+2. **Tier 1, live.** Build a third KYC-domain screen from the playbook (`apps/sar-desk` is the one
+   built earlier the same way). Point out what the
    session was *not allowed* to do — and that adding the folder was the whole wiring: it typechecks,
    builds, runs and lands on the launcher because everything discovers `apps/*`.
 3. **Tier 1 refuses.** Ask the same playbook for the flag admin. Triage must class it tier 2 and
