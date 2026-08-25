@@ -1,15 +1,15 @@
 import type { PlatformUser } from "@platform/sdk";
-import { APP_MANIFEST, missingScopes, type AppManifestEntry } from "../apps/manifest.ts";
+import { missingScopes, type AppDefinition } from "../apps/manifest.ts";
+import { APPS } from "../apps/registry.ts";
+import { PLATFORM_VIEWS } from "./views.tsx";
 
 /**
- * The landing page: every registered app as a tile, offered or locked
+ * The landing page: every discovered app as a tile, offered or locked
  * depending on the scopes of the signed-in principal. Availability here is
  * presentation only — the runtime enforces the same scopes on every call.
  */
 export function Home({ user, onOpen }: { user: PlatformUser | undefined; onOpen: (id: string) => void }) {
   const scopes = user?.scopes ?? [];
-  const apps = APP_MANIFEST.filter((entry) => entry.kind === "app");
-  const platformViews = APP_MANIFEST.filter((entry) => entry.kind === "platform");
 
   return (
     <>
@@ -20,7 +20,7 @@ export function Home({ user, onOpen }: { user: PlatformUser | undefined; onOpen:
           : "Loading identity…"}
       </p>
       <div className="tile-grid">
-        {apps.map((entry) => (
+        {APPS.map((entry) => (
           <Tile key={entry.id} entry={entry} scopes={scopes} onOpen={onOpen} />
         ))}
       </div>
@@ -28,7 +28,7 @@ export function Home({ user, onOpen }: { user: PlatformUser | undefined; onOpen:
       <h2 style={{ marginTop: 24 }}>Platform</h2>
       <p className="hint">Built into the platform rather than generated: approvals, audit, and the capability registry.</p>
       <div className="tile-grid">
-        {platformViews.map((entry) => (
+        {PLATFORM_VIEWS.map((entry) => (
           <Tile key={entry.id} entry={entry} scopes={scopes} onOpen={onOpen} />
         ))}
       </div>
@@ -41,7 +41,7 @@ function Tile({
   scopes,
   onOpen,
 }: {
-  entry: AppManifestEntry;
+  entry: AppDefinition;
   scopes: string[];
   onOpen: (id: string) => void;
 }) {

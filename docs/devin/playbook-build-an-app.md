@@ -28,9 +28,27 @@ A paragraph of intent in risk terms, e.g.:
 5. **Add scopes** to `ROLE_SCOPES` in `packages/kernel/src/auth.ts` only if no existing scope fits.
    A new scope is a bigger decision than a new verb: call it out explicitly.
 6. **Write the app** in `apps/console/src/apps/<Name>.tsx`. It may import `../client.ts`,
-   `../format.ts` and `../Outcome.tsx` and nothing else from the platform. Render every outcome
-   the SDK can return — `pending_approval` and `denied_*` are normal states, not errors.
-7. **Register the tab** in `apps/console/src/App.tsx`.
+   `../format.ts`, `../Outcome.tsx` and `./manifest.ts` and nothing else from the platform.
+   Render every outcome the SDK can return — `pending_approval` and `denied_*` are normal
+   states, not errors.
+7. **Export the launcher tile** from the same file. The launcher auto-discovers every module in
+   `apps/console/src/apps/` that exports an `app` definition — do **not** edit `App.tsx`,
+   `Home.tsx` or any central list. Append to your app file:
+
+   ```tsx
+   export const app: AppDefinition = {
+     id: "disputes",                       // unique, stable
+     name: "Disputes",                     // tile title
+     description: "One sentence on what the app does and who uses it.",
+     requiredScopes: ["queue:read"],       // scopes the launcher checks to offer the tile
+     surface: "disputes.list · disputes.submitEvidence", // capabilities it calls, for the tile
+     kind: "app",
+     render: (actorId) => <Disputes actorId={actorId} />,
+   };
+   ```
+
+   `requiredScopes` is presentation only — the runtime re-checks scopes on every call. It should
+   mirror the scopes of the capabilities the app invokes.
 8. **Verify** with `npm run lint && npm run typecheck && npm test`, then exercise the app in the
    browser as each seeded role, including at least one denial and one approval path.
 9. **Open a PR** whose description leads with the policy declarations you added, in full. That
