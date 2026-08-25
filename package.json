@@ -1,0 +1,41 @@
+{
+  "name": "internal-tool-platform",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "db:migrate": "tsx packages/db/src/cli.ts migrate",
+    "db:seed": "tsx packages/db/src/cli.ts seed",
+    "db:reset": "tsx packages/db/src/cli.ts reset",
+    "setup": "npm run db:up && node scripts/wait-for-db.mjs && npm run db:reset",
+    "dev": "concurrently -n api,console -c cyan,magenta \"npm:dev:api\" \"npm:dev:console\"",
+    "dev:api": "tsx watch apps/api/src/main.ts",
+    "dev:console": "vite --config apps/console/vite.config.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "node scripts/check-boundaries.mjs",
+    "test": "tsx --test packages/kernel/test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "20.14.10",
+    "@types/pg": "8.11.6",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "@vitejs/plugin-react": "4.3.1",
+    "concurrently": "8.2.2",
+    "tsx": "4.16.2",
+    "typescript": "5.5.3",
+    "vite": "5.3.4"
+  },
+  "dependencies": {
+    "@fastify/cors": "9.0.1",
+    "fastify": "4.28.1",
+    "pg": "8.12.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "zod": "3.23.8"
+  }
+}
