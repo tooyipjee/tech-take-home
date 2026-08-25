@@ -13,7 +13,7 @@
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { after, before, beforeEach, test } from "node:test";
+import { after, afterEach, before, beforeEach, test } from "node:test";
 import { migrate, pool, resetAndSeed, withClient, withTransaction } from "@rangka/db";
 import type { PgClient } from "@rangka/db";
 import { decideApproval, invoke } from "../../src/index.ts";
@@ -22,6 +22,7 @@ import { resolvePrincipal } from "../../src/auth.ts";
 import { reconcile } from "../../src/reconciler.ts";
 import { checkInvariant, getInvariant } from "../../src/invariants.ts";
 import type { Principal } from "../../src/types.ts";
+import { releaseDatabase, takeDatabase } from "./exclusive.ts";
 
 /** $480 settled: small enough that an agent may refund all of it unaided. */
 const SMALL_PAYMENT = "pay_5002";
@@ -43,6 +44,7 @@ before(async () => {
 });
 
 beforeEach(async () => {
+  await takeDatabase();
   await resetAndSeed();
   await syncRegistry();
   const principals = await withClient(async (client) => ({
@@ -58,6 +60,10 @@ beforeEach(async () => {
   supervisor = principals.supervisor;
   admin = principals.admin;
   secondAdmin = principals.secondAdmin;
+});
+
+afterEach(async () => {
+  await releaseDatabase();
 });
 
 after(async () => {
