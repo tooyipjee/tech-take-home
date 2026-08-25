@@ -53,6 +53,7 @@ test("a well-formed capability registers", () => {
       approval: { mode: "above_amount", amountCents: 500 },
       approverScope: "approvals:decide",
       amountField: "amountCents",
+      effect: { table: "refunds", amountColumn: "amount_cents" },
     },
     handler: async () => null,
   });

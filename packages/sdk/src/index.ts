@@ -12,6 +12,10 @@ export type Outcome =
   | "rate_limited"
   | "invalid_input"
   | "not_found"
+  /** A tenet guarding this capability is violated; it is refusing writes. */
+  | "halted"
+  /** The effect would have broken a platform tenet and was rolled back. */
+  | "tenet_violation"
   | "error";
 
 export interface InvokeResult<T> {
@@ -44,6 +48,40 @@ export interface PlatformClient {
   approvals(status?: string): Promise<ApprovalSummary[]>;
   decide(approvalId: string, decision: "approve" | "reject"): Promise<InvokeResult<unknown>>;
   audit(limit?: number): Promise<AuditEntry[]>;
+  tenets(): Promise<TenetReport>;
+  runTenets(): Promise<ReconciliationResult>;
+  clearHalt(capability: string): Promise<{ cleared: boolean; message: string }>;
+}
+
+export interface TenetStatus {
+  id: string;
+  statement: string;
+  /** The axiom or policy field this tenet was derived from. */
+  derivedFrom: string;
+  halts: string[];
+  postconditionFor: string[];
+  lastRunAt: string | null;
+  violations: number;
+  detail: string | null;
+}
+
+export interface Halt {
+  id: number;
+  capability: string;
+  tenetId: string;
+  detail: string;
+  haltedAt: string;
+}
+
+export interface TenetReport {
+  tenets: TenetStatus[];
+  halts: Halt[];
+}
+
+export interface ReconciliationResult {
+  checkedAt: string;
+  violations: { tenetId: string; subject: string; detail: string }[];
+  halted: string[];
 }
 
 export interface ApprovalSummary {
@@ -109,5 +147,14 @@ export function createClient(getUserId: () => string, baseUrl = "/api"): Platfor
         body: JSON.stringify({ decision }),
       }),
     audit: (limit = 100) => call(`/audit?limit=${limit}`),
+    tenets: () => call("/tenets"),
+    runTenets: () => call("/tenets/run", { method: "POST" }),
+    clearHalt: (capability) =>
+      call<{ cleared: boolean; message: string }>(`/tenets/halts/${capability}/clear`, {
+        method: "POST",
+      }).catch((error: Error) => ({
+        cleared: false,
+        message: error.message,
+      })),
   };
 }

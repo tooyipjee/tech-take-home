@@ -21,5 +21,6 @@
     }
   },
   "include": ["packages/**/*.ts", "packages/**/*.tsx", "apps/**/*.ts", "apps/**/*.tsx", "scripts/**/*.mjs"],
-  "exclude": ["apps/kyc-review"]
+  "//": "apps/kyc-review is a standalone app with its own tsconfig (vite/client types); it is checked by npm --prefix apps/kyc-review run typecheck.",
+  "exclude": ["node_modules", "apps/kyc-review"]
 }

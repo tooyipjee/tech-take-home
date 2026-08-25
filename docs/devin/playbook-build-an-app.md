@@ -1,7 +1,13 @@
-# Playbook — build an internal app on the platform
+# Playbook (tier 1) — build an internal app on the platform
 
 Draft for a Devin playbook. Paste into a playbook, attach the knowledge note in
 [`knowledge-platform-conventions.md`](knowledge-platform-conventions.md), and iterate.
+
+**Scope of this playbook: apps only.** It composes capabilities and tenets that already
+exist. It never adds, weakens or removes one. If the app needs a verb the platform does
+not have, stop and run
+[`playbook-extend-the-platform.md`](playbook-extend-the-platform.md) instead — that is a
+different job with more review, and `npm run lint` fails if this one strays into it.
 
 ## What the user provides
 
@@ -17,16 +23,17 @@ A paragraph of intent in risk terms, e.g.:
    platform, and violating them fails `npm run lint`.
 2. **Inventory the verbs.** List every read and write the screen needs. Check
    `packages/capabilities` and `GET /api/capabilities` for existing ones. Reuse beats adding.
-3. **Report the plan before writing code.** State the capabilities you will add, and for each write
-   capability, the exact policy declaration you propose:
-   `scope`, `maxAmountCents`, `maxPerHour`, `approval`. Ask the user to confirm the numbers —
-   they are risk decisions, not implementation details, and they are the thing a human reviews.
-4. **Add missing capabilities** in `packages/capabilities`, one file per domain. Use
-   `defineRead` / `defineWrite`. Handlers use only `input` and `ctx.data`. If you need a data
-   operation that `DataSource` does not expose, add it in `packages/db/src/datasource.ts` — never
-   run SQL from a handler.
-5. **Add scopes** to `ROLE_SCOPES` in `packages/kernel/src/auth.ts` only if no existing scope fits.
-   A new scope is a bigger decision than a new verb: call it out explicitly.
+3. **Report the plan before writing code.** State which existing capability serves each verb, the
+   policy it already declares (`scope`, `maxAmountCents`, `maxPerHour`, `approval`), and anything
+   the screen needs that nothing provides. Those declared numbers are risk decisions the user has
+   already made: build the app around them rather than asking for them to be changed.
+4. **If a verb is missing, stop.** Adding a capability, a `DataSource` method, a scope, a tenet
+   or a migration is tier-2 work. Report which verb is missing and what policy it would need,
+   and switch to [`playbook-extend-the-platform.md`](playbook-extend-the-platform.md). Do not
+   work around it in app code.
+5. **Read the tenets** the flows you are building depend on: `GET /api/tenets`, or
+   `packages/kernel/src/tenets.ts`. They tell you what the platform already guarantees, so you
+   do not re-check it in the app.
 6. **Write the app** in `apps/console/src/apps/<Name>.tsx`. It may import `../client.ts`,
    `../format.ts`, `../Outcome.tsx` and `./manifest.ts` and nothing else from the platform.
    Render every outcome the SDK can return — `pending_approval` and `denied_*` are normal
@@ -50,7 +57,8 @@ A paragraph of intent in risk terms, e.g.:
    `requiredScopes` is presentation only — the runtime re-checks scopes on every call. It should
    mirror the scopes of the capabilities the app invokes.
 8. **Verify** with `npm run lint && npm run typecheck && npm test`, then exercise the app in the
-   browser as each seeded role, including at least one denial and one approval path.
+   browser as each seeded role, including at least one denial and one approval path. `npm run lint`
+   also fails if this change touched the platform, which is the mechanical form of the rule above.
 9. **Open a PR** whose description leads with the policy declarations you added, in full. That
    block is what the reviewer is actually approving.
 
@@ -63,3 +71,13 @@ A paragraph of intent in risk terms, e.g.:
 - Never call `fetch` from an app; use the SDK.
 - Never widen a `maxAmountCents` ceiling to make a flow work. Escalate.
 - Never add a capability that takes a table name, a SQL fragment, or an arbitrary filter object.
+- Never edit `packages/kernel`, `packages/db`, `packages/capabilities`, `packages/sdk`, a
+  migration, or the check scripts. Those are tier 2.
+- Never treat a `halted` or `tenet_violation` outcome as a bug to route around. Surface it: the
+  platform is telling the user it can no longer prove the operation is safe.
+
+## Outcomes an app must render
+
+`ok`, `replayed`, `pending_approval`, `denied_scope`, `denied_limit`, `rate_limited`,
+`invalid_input`, `not_found`, `halted`, `tenet_violation`, `error`. All of them are normal
+platform behaviour; none of them should reach the user as a stack trace.
