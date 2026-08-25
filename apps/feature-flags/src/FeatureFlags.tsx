@@ -91,15 +91,59 @@ const CONSEQUENCE: Record<string, { tone: string; title: string; detail: string 
   },
 };
 
+/**
+ * Signing off is a different action, and the same outcome means a different thing on
+ * it: `denied_scope` on a flip is "not your job", and on a signature it is usually
+ * "not on your own request". One map for both would tell an administrator they are not
+ * an administrator.
+ */
+const SIGNING: Record<string, { tone: string; title: string; detail: string }> = {
+  ok: {
+    tone: "ok",
+    title: "Signed off",
+    detail: "The change is live, recorded against the person who asked for it.",
+  },
+  denied_scope: {
+    tone: "bad",
+    title: "That signature was not accepted",
+    detail:
+      "A change has to be signed by a different administrator from the one who asked for it, and only administrators can sign.",
+  },
+  not_found: {
+    tone: "warn",
+    title: "Already decided",
+    detail: "Someone else got to this request first, so there was nothing left to decide.",
+  },
+  conflict: {
+    tone: "warn",
+    title: "Already decided",
+    detail: "Someone else got to this request first, so there was nothing left to decide.",
+  },
+};
+
 /** The runtime's own message, but only where it reads as an explanation rather than a rule. */
 const SPEAKS_PLAINLY = new Set(["conflict", "invalid_input"]);
 
-function Outcome({ result }: { result: InvokeResult<unknown> | null }) {
-  if (!result) return null;
-  const consequence = CONSEQUENCE[result.outcome] ?? CONSEQUENCE.error;
+/** Which action the banner is reporting on: the same outcome does not mean the same thing. */
+type Action = "flip" | "sign";
+
+interface Reported {
+  action: Action;
+  result: InvokeResult<unknown>;
+}
+
+function Outcome({ reported }: { reported: Reported | null }) {
+  if (!reported) return null;
+  const { action, result } = reported;
+  const consequence =
+    (action === "sign" ? SIGNING[result.outcome] : undefined) ??
+    CONSEQUENCE[result.outcome] ??
+    CONSEQUENCE.error;
   if (!consequence) return null;
   const detail =
-    SPEAKS_PLAINLY.has(result.outcome) && result.message ? result.message : consequence.detail;
+    action === "flip" && SPEAKS_PLAINLY.has(result.outcome) && result.message
+      ? result.message
+      : consequence.detail;
   return (
     <div className={`outcome-banner ${consequence.tone}`}>
       <strong>{consequence.title}</strong>
@@ -131,7 +175,8 @@ export function FeatureFlags({ actorId }: { actorId: string }) {
   const [allowance, setAllowance] = useState<number | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<InvokeResult<unknown> | null>(null);
+  const [reader, setReader] = useState(actorId);
+  const [outcome, setOutcome] = useState<Reported | null>(null);
   const [paused, setPaused] = useState(false);
 
   const loadFlags = useCallback(async () => {
@@ -139,7 +184,7 @@ export function FeatureFlags({ actorId }: { actorId: string }) {
     if (response.outcome === "ok") setFlags(response.result?.flags ?? []);
     else {
       setFlags([]);
-      setOutcome(response);
+      setOutcome({ action: "flip", result: response });
     }
   }, []);
 
@@ -151,7 +196,13 @@ export function FeatureFlags({ actorId }: { actorId: string }) {
   useEffect(() => {
     void loadFlags();
     void loadPending();
-  }, [loadFlags, loadPending, actorId]);
+    // Whose refusal is on screen matters: keeping one person's after the acting user
+    // changed would read as the new person's.
+    if (reader !== actorId) {
+      setReader(actorId);
+      setOutcome(null);
+    }
+  }, [loadFlags, loadPending, actorId, reader]);
 
   useEffect(() => {
     // The allowance on screen is the one the runtime is enforcing: it comes from the
@@ -174,15 +225,16 @@ export function FeatureFlags({ actorId }: { actorId: string }) {
 
   async function move(flag: Flag) {
     setBusy(true);
-    setOutcome(
-      await platform.invoke(
+    setOutcome({
+      action: "flip",
+      result: await platform.invoke(
         "flags.flip",
         { flagId: flag.id, revision: flag.revision, enabled: !flag.enabled, note },
         // Keyed on the flag, the state it was read at and the state asked for, so a
         // double click or a retry replays instead of flipping twice.
         `flags.flip:${flag.id}:${flag.revision}:${!flag.enabled}`,
       ),
-    );
+    });
     setBusy(false);
     setNote("");
     await Promise.all([loadFlags(), loadPending()]);
@@ -190,7 +242,7 @@ export function FeatureFlags({ actorId }: { actorId: string }) {
 
   async function decide(request: ApprovalSummary, decision: "approve" | "reject") {
     setBusy(true);
-    setOutcome(await platform.decide(request.id, decision));
+    setOutcome({ action: "sign", result: await platform.decide(request.id, decision) });
     setBusy(false);
     await Promise.all([loadFlags(), loadPending()]);
   }
@@ -218,7 +270,7 @@ export function FeatureFlags({ actorId }: { actorId: string }) {
           </div>
         </div>
       ) : null}
-      <Outcome result={outcome} />
+      <Outcome reported={outcome} />
 
       <p className="hint">
         <input
