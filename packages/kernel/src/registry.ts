@@ -2,6 +2,18 @@ import { z } from "zod";
 import { PolicyDeclarationError } from "./errors.ts";
 import type { Capability, ReadCapability, WriteCapability } from "./types.ts";
 
+/** Declared identifiers go into generated SQL, so they are database identifiers or nothing. */
+const identifier = z.string().regex(/^[a-z_][a-z0-9_]*$/, "must be a lowercase sql identifier");
+
+const effectSchema = z.object({
+  table: identifier,
+  amountColumn: identifier,
+  live: z.object({ column: identifier, equals: z.string().regex(/^[a-z_]+$/) }).optional(),
+  conserves: z
+    .object({ table: identifier, via: identifier, amountColumn: identifier })
+    .optional(),
+});
+
 const writePolicySchema = z.object({
   scope: z.string().min(1),
   idempotent: z.literal(true),
@@ -16,6 +28,7 @@ const writePolicySchema = z.object({
   ]),
   approverScope: z.string().min(1),
   amountField: z.string().min(1).optional(),
+  effect: effectSchema.optional(),
 });
 
 const readPolicySchema = z.object({
@@ -59,6 +72,13 @@ export function defineWrite<I extends z.ZodTypeAny, O>(
   if (needsAmount && !policy.amountField) {
     throw new PolicyDeclarationError(
       `write capability ${capability.name} declares an amount-based limit or approval rule but no amountField`,
+    );
+  }
+  // A capability that moves money must say where the money lands, or the platform
+  // has no way to prove afterwards that it moved the right amount to the right place.
+  if (policy.limits.maxAmountCents !== null && !policy.effect) {
+    throw new PolicyDeclarationError(
+      `write capability ${capability.name} moves money but declares no effect, so no tenet can be derived for it`,
     );
   }
   const registered: WriteCapability<I, O> = { ...capability, kind: "write" };

@@ -33,6 +33,12 @@ export const issueRefund = defineWrite({
     approval: { mode: "above_amount", amountCents: 50_000 },
     approverScope: "approvals:decide",
     amountField: "amountCents",
+    effect: {
+      table: "refunds",
+      amountColumn: "amount_cents",
+      live: { column: "status", equals: "issued" },
+      conserves: { table: "payments", via: "payment_id", amountColumn: "amount_cents" },
+    },
   },
   handler: async (input, ctx) => {
     const payment = await ctx.data.getPayment(input.paymentId);

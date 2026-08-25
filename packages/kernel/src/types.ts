@@ -26,6 +26,34 @@ export type ApprovalRule =
   | { mode: "always" }
   | { mode: "above_amount"; amountCents: number };
 
+/**
+ * Where a write capability's effect lands, and what finite thing it draws down.
+ *
+ * This is the declaration the platform derives tenets from: given it, every rule
+ * that can be proved about the capability — attribution, conservation, ceiling,
+ * approval, rate, idempotency — is generated from the policy above rather than
+ * hand-written per capability. A money-moving capability that does not declare
+ * one cannot be proved correct after the fact, so the registry refuses it.
+ *
+ * Identifiers are database identifiers, validated at registration.
+ */
+export interface EffectDeclaration {
+  /** One row per accepted invocation lands here. */
+  table: string;
+  /** Column holding the amount moved; must equal the audited amount. */
+  amountColumn: string;
+  /** Which rows count as live effects, e.g. `{ column: "status", equals: "issued" }`. */
+  live?: { column: string; equals: string };
+  /** The pool this effect draws down: refunds draw down their payment. */
+  conserves?: {
+    table: string;
+    /** Column on the effect table naming the pool row. */
+    via: string;
+    /** Column on the pool table holding the total available. */
+    amountColumn: string;
+  };
+}
+
 export interface WritePolicy {
   scope: string;
   /**
@@ -39,6 +67,8 @@ export interface WritePolicy {
   approverScope: string;
   /** Dot path into the validated input holding the money amount, if any. */
   amountField?: string;
+  /** What the capability writes; the platform derives this capability's tenets from it. */
+  effect?: EffectDeclaration;
 }
 
 export interface ReadPolicy {
@@ -88,6 +118,10 @@ export type Outcome =
   | "rate_limited"
   | "invalid_input"
   | "not_found"
+  /** A tenet guarding this capability is violated; writes are refused until cleared. */
+  | "halted"
+  /** The effect broke a tenet and was rolled back. */
+  | "tenet_violation"
   | "error";
 
 export interface InvokeResult<T = unknown> {
