@@ -6,7 +6,17 @@ import type { Principal, Role } from "./types.ts";
  * new role never requires touching capability code.
  */
 export const ROLE_SCOPES: Record<Role, string[]> = {
-  agent: ["payments:read", "refunds:read", "refunds:write", "queue:read", "queue:write", "flags:read"],
+  agent: [
+    "payments:read",
+    "refunds:read",
+    "refunds:write",
+    "queue:read",
+    "queue:write",
+    "flags:read",
+    // Tenet health is readable by everyone: a halted capability must be
+    // explainable to the person whose work just stopped.
+    "tenets:read",
+  ],
   supervisor: [
     "payments:read",
     "refunds:read",
@@ -17,6 +27,7 @@ export const ROLE_SCOPES: Record<Role, string[]> = {
     "approvals:read",
     "approvals:decide",
     "audit:read",
+    "tenets:read",
   ],
   admin: [
     "payments:read",
@@ -29,6 +40,10 @@ export const ROLE_SCOPES: Record<Role, string[]> = {
     "approvals:read",
     "approvals:decide",
     "audit:read",
+    "tenets:read",
+    // Resuming a halted capability is an admin act, and only possible once the
+    // tenet passes again.
+    "tenets:clear",
   ],
 };
 

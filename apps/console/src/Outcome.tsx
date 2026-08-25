@@ -9,6 +9,8 @@ const TONE: Record<string, string> = {
   rate_limited: "bad",
   invalid_input: "bad",
   not_found: "bad",
+  halted: "bad",
+  tenet_violation: "bad",
   error: "bad",
 };
 
@@ -21,6 +23,9 @@ const EXPLAIN: Record<string, string> = {
   rate_limited: "Blocked by the per-hour ceiling declared on the capability.",
   invalid_input: "Rejected by the capability's input schema.",
   not_found: "No such capability in the registry.",
+  halted: "A tenet guarding this capability is violated, so it is refusing writes until an admin clears it.",
+  tenet_violation:
+    "The effect broke a platform tenet and was rolled back inside the transaction — nothing committed.",
   error: "The handler threw; the transaction rolled back and the failure was audited.",
 };
 

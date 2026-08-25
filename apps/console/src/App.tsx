@@ -6,6 +6,7 @@ import { ReviewQueue } from "./apps/ReviewQueue.tsx";
 import { ApprovalsInbox } from "./platform/ApprovalsInbox.tsx";
 import { AuditLog } from "./platform/AuditLog.tsx";
 import { RegistryView } from "./platform/RegistryView.tsx";
+import { TenetsView } from "./platform/TenetsView.tsx";
 
 const TABS = [
   { id: "refunds", label: "Refunds (app)" },
@@ -13,6 +14,7 @@ const TABS = [
   { id: "approvals", label: "Approvals" },
   { id: "audit", label: "Audit log" },
   { id: "registry", label: "Capability registry" },
+  { id: "tenets", label: "Tenets" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -71,6 +73,7 @@ export function App() {
           {tab === "approvals" ? <ApprovalsInbox actorId={userId} /> : null}
           {tab === "audit" ? <AuditLog actorId={userId} /> : null}
           {tab === "registry" ? <RegistryView /> : null}
+          {tab === "tenets" ? <TenetsView actorId={userId} /> : null}
         </section>
       </main>
     </>

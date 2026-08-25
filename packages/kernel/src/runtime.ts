@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { createDataSource, withClient, withTransaction } from "@platform/db";
 import type { PgClient } from "@platform/db";
 import { resolvePrincipal } from "./auth.ts";
+import { activeHalt } from "./reconciler.ts";
 import { getCapability } from "./registry.ts";
+import { assertPostconditions, describeViolations } from "./tenets.ts";
 import type {
   Capability,
   CapabilityContext,
@@ -26,6 +28,7 @@ export interface InvokeRequest {
 }
 
 interface AuditRecord {
+  invocationId: string;
   actorId: string;
   actorRole: string;
   capability: string;
@@ -57,10 +60,11 @@ function redact(value: unknown): unknown {
 async function writeAudit(client: PgClient, record: AuditRecord): Promise<void> {
   await client.query(
     `insert into audit_log
-       (actor_id, actor_role, capability, kind, outcome, input, result, amount_cents,
+       (invocation_id, actor_id, actor_role, capability, kind, outcome, input, result, amount_cents,
         approval_id, idempotency_key, error, duration_ms)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
     [
+      record.invocationId,
       record.actorId,
       record.actorRole,
       record.capability,
@@ -117,15 +121,20 @@ async function countRecentAccepted(
  * the audit record is written inside the same transaction as the handler's
  * effect. An app cannot perform an unlogged, unbounded or unauthorised action
  * because none of those checks live in code an app author writes.
+ *
+ * The last step of a write is a tenet postcondition (see ./tenets.ts): the
+ * transaction only commits if the platform's invariants still hold afterwards.
  */
 export async function invoke<T = unknown>(request: InvokeRequest): Promise<InvokeResult<T>> {
   const started = Date.now();
   const { principal } = request;
   const capability = getCapability(request.capability);
+  const invocationId = randomUUID();
 
   const fail = async (outcome: Outcome, message: string, extra: Partial<AuditRecord> = {}) => {
     await withClient((client) =>
       writeAudit(client, {
+        invocationId,
         actorId: principal.id,
         actorRole: principal.role,
         capability: request.capability,
@@ -156,10 +165,21 @@ export async function invoke<T = unknown>(request: InvokeRequest): Promise<Invok
   const input = clampRows(capability, parsed.data);
 
   if (capability.kind === "read") {
-    return execute<T>(capability, input, principal, started, null, null, null);
+    return execute<T>(capability, input, principal, started, null, null, null, invocationId);
   }
 
   const write = capability as WriteCapability;
+
+  // A violated tenet stops the capability it guards, not the platform: reads
+  // and unrelated writes keep serving while a human investigates.
+  const halt = await withClient((client) => activeHalt(client, write.name));
+  if (halt) {
+    return fail(
+      "halted",
+      `${write.name} is halted since ${halt.haltedAt} by tenet ${halt.tenetId}: ${halt.detail}`,
+    );
+  }
+
   if (!request.idempotencyKey) {
     return fail("invalid_input", `${write.name} is a write capability and requires an idempotency key`);
   }
@@ -200,6 +220,7 @@ export async function invoke<T = unknown>(request: InvokeRequest): Promise<Invok
         ],
       );
       await writeAudit(client, {
+        invocationId,
         actorId: principal.id,
         actorRole: principal.role,
         capability: write.name,
@@ -227,6 +248,7 @@ export async function invoke<T = unknown>(request: InvokeRequest): Promise<Invok
     request.idempotencyKey,
     amountCents,
     request.approvalGrant?.approvalId ?? null,
+    invocationId,
   );
 }
 
@@ -255,8 +277,8 @@ async function execute<T>(
   idempotencyKey: string | null,
   amountCents: number | null,
   approvalId: string | null,
+  invocationId: string,
 ): Promise<InvokeResult<T>> {
-  const invocationId = randomUUID();
   try {
     return await withTransaction(async (client) => {
       if (idempotencyKey) {
@@ -266,6 +288,7 @@ async function execute<T>(
         );
         if (rows[0]) {
           await writeAudit(client, {
+            invocationId,
             actorId: principal.id,
             actorRole: principal.role,
             capability: capability.name,
@@ -284,7 +307,7 @@ async function execute<T>(
 
       const ctx: CapabilityContext = {
         principal,
-        data: createDataSource(client),
+        data: createDataSource(client, invocationId),
         now: new Date(),
         invocationId,
       };
@@ -298,6 +321,7 @@ async function execute<T>(
       }
 
       await writeAudit(client, {
+        invocationId,
         actorId: principal.id,
         actorRole: principal.role,
         capability: capability.name,
@@ -311,17 +335,31 @@ async function execute<T>(
         durationMs: Date.now() - started,
       });
 
+      // Postcondition, inside the transaction and after the audit row exists:
+      // the tenets are re-derived from what this transaction is about to
+      // commit. Throwing here rolls back the effect, the idempotency key and
+      // this audit row together, so a broken invariant never reaches disk.
+      const violations = await assertPostconditions(client, capability.name);
+      if (violations.length > 0) {
+        throw new TenetViolationError(describeViolations(violations));
+      }
+
       return { outcome: "ok", result };
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const outcome: Outcome = error instanceof TenetViolationError ? "tenet_violation" : "error";
+    // The rollback took the audit row with it, so the failure is recorded again
+    // outside the transaction, under the same invocation id. A refused effect is
+    // as visible, and as traceable, as an accepted one.
     await withClient((client) =>
       writeAudit(client, {
+        invocationId,
         actorId: principal.id,
         actorRole: principal.role,
         capability: capability.name,
         kind: capability.kind,
-        outcome: "error",
+        outcome,
         input,
         amountCents,
         approvalId,
@@ -330,9 +368,11 @@ async function execute<T>(
         durationMs: Date.now() - started,
       }),
     );
-    return { outcome: "error", message };
+    return { outcome, message };
   }
 }
+
+class TenetViolationError extends Error {}
 
 /** Reads are audited by shape, not by payload, so the log stays useful and small. */
 function summarise(result: unknown): unknown {
@@ -406,6 +446,7 @@ export async function decideApproval(decision: ApprovalDecision): Promise<Invoke
   const auditDecision = async (outcome: Outcome, message?: string) => {
     await withClient((client) =>
       writeAudit(client, {
+        invocationId: randomUUID(),
         actorId: approver.id,
         actorRole: approver.role,
         capability: "approvals.decide",

@@ -1,5 +1,10 @@
 # Authoring a capability
 
+Adding a capability is **tier-2 work**: it changes what the platform can promise, so it runs
+under [`docs/devin/playbook-extend-the-platform.md`](devin/playbook-extend-the-platform.md) and
+needs a change record under `docs/platform-changes/`. This page is the shape of the artifact;
+the playbook is the procedure and the review it must pass.
+
 The workflow the platform is designed around:
 
 1. **A human writes a one-paragraph spec**, in risk terms rather than code terms:
@@ -32,6 +37,12 @@ export const submitEvidence = defineWrite({
 - A write capability that omits `limits` or `approval` **fails to register at boot**.
 - A capability declaring an amount ceiling or amount-based approval without an `amountField`
   **fails to register at boot**.
+- A capability that moves money (a non-null `maxAmountCents`) without an `effect` declaration
+  **fails to register at boot**: with nowhere named for the money to land, no tenet can be
+  derived and nothing about it could be proved after the fact.
+- The `effect` declaration generates this capability's tenets — attribution, conservation
+  against the pool it names, the ceiling, the approval rule, the rate, idempotency — which are
+  then proved inside its own transaction and re-proved by the reconciler.
 - Writes without an idempotency key are rejected at invocation.
 - Reads cannot return more than their declared `maxRows`.
 - Every invocation — including denials — is audited; successful effects commit with their audit
@@ -46,6 +57,9 @@ Read the policy block before the handler:
       than a threshold? Nothing overrides a ceiling, not even approval.
 - [ ] Does `maxPerHour` bound the blast radius of a loop in app code or a stuck retry?
 - [ ] Does the approval rule match who carries the loss if this is wrong?
+- [ ] Does `effect` name the right pool? `conserves` is the claim "this effect can never total
+      more than that row"; naming the wrong table produces a rule that proves the wrong thing
+      convincingly.
 - [ ] Does the handler use only `ctx.data` and `input`? No imports of `pg`, no vendor SDKs, no
       reads of `process.env`.
 - [ ] Does the handler re-check business invariants (refundable balance, item still open)?

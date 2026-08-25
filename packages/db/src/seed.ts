@@ -79,7 +79,8 @@ export async function resetAndSeed(): Promise<void> {
   await withClient(async (client) => {
     await client.query(
       `truncate audit_log, approvals, idempotency_keys, refunds, review_queue_items,
-                payments, feature_flags, customers restart identity cascade`,
+                payments, feature_flags, customers, capability_halts, tenet_runs
+       restart identity cascade`,
     );
   });
   await seed();

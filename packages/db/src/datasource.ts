@@ -176,7 +176,12 @@ function toReviewItem(row: ReviewRow): ReviewItem {
   };
 }
 
-export function createDataSource(client: PgClient): DataSource {
+/**
+ * Bound to one transaction *and* one invocation: the invocation id is stamped
+ * onto every effect by this layer, not by the capability handler, so a handler
+ * cannot write a row that isn't attributable to an audited invocation.
+ */
+export function createDataSource(client: PgClient, invocationId: string): DataSource {
   return {
     async listPayments(limit) {
       const { rows } = await client.query<PaymentRow>(
@@ -202,10 +207,10 @@ export function createDataSource(client: PgClient): DataSource {
 
     async insertRefund(refund) {
       const { rows } = await client.query<RefundRow>(
-        `insert into refunds (id, payment_id, amount_cents, reason, status, issued_by)
-         values ($1, $2, $3, $4, 'issued', $5)
+        `insert into refunds (id, payment_id, amount_cents, reason, status, issued_by, invocation_id)
+         values ($1, $2, $3, $4, 'issued', $5, $6)
          returning *`,
-        [refund.id, refund.paymentId, refund.amountCents, refund.reason, refund.issuedBy],
+        [refund.id, refund.paymentId, refund.amountCents, refund.reason, refund.issuedBy, invocationId],
       );
       await client.query(
         `update payments p

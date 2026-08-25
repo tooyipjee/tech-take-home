@@ -2,13 +2,18 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { migrate, pool, withClient } from "@platform/db";
 import {
+  clearHalt,
   decideApproval,
   invoke,
   listApprovals,
   listAuditLog,
   listCapabilities,
+  listHalts,
   listPrincipals,
+  listTenetStatus,
+  reconcile,
   resolvePrincipal,
+  startReconciler,
   syncRegistry,
 } from "@platform/kernel";
 import type { Principal } from "@platform/kernel";
@@ -88,6 +93,39 @@ app.get<{ Querystring: { limit?: string } }>("/api/audit", async (request, reply
   return listAuditLog(Number(request.query.limit ?? 100));
 });
 
+app.get("/api/tenets", async (request, reply) => {
+  const principal = await principalFrom(request.headers["x-platform-user"]);
+  if (!principal) return reply.code(401).send({ message: "unknown user" });
+  if (!principal.scopes.includes("tenets:read")) {
+    return reply.code(403).send({ message: `${principal.role} lacks scope tenets:read` });
+  }
+  const [tenets, halts] = await Promise.all([listTenetStatus(), listHalts()]);
+  return { tenets, halts };
+});
+
+/** Manual reconciliation, for demos and for confirming a fix before clearing a halt. */
+app.post("/api/tenets/run", async (request, reply) => {
+  const principal = await principalFrom(request.headers["x-platform-user"]);
+  if (!principal) return reply.code(401).send({ message: "unknown user" });
+  if (!principal.scopes.includes("tenets:read")) {
+    return reply.code(403).send({ message: `${principal.role} lacks scope tenets:read` });
+  }
+  return reconcile();
+});
+
+app.post<{ Params: { capability: string } }>(
+  "/api/tenets/halts/:capability/clear",
+  async (request, reply) => {
+    const principal = await principalFrom(request.headers["x-platform-user"]);
+    if (!principal) return reply.code(401).send({ message: "unknown user" });
+    if (!principal.scopes.includes("tenets:clear")) {
+      return reply.code(403).send({ message: `${principal.role} lacks scope tenets:clear` });
+    }
+    const result = await clearHalt(request.params.capability, principal);
+    return reply.code(result.cleared ? 200 : 409).send(result);
+  },
+);
+
 function statusFor(outcome: string): number {
   switch (outcome) {
     case "ok":
@@ -105,6 +143,10 @@ function statusFor(outcome: string): number {
       return 400;
     case "not_found":
       return 404;
+    case "tenet_violation":
+      return 409;
+    case "halted":
+      return 503;
     default:
       return 500;
   }
@@ -116,6 +158,8 @@ try {
   await migrate();
   const count = await syncRegistry();
   await app.listen({ port, host: "0.0.0.0" });
+  // The registry has to be synced first: tenets read declared policy from it.
+  startReconciler(Number(process.env.RECONCILE_INTERVAL_MS ?? 15_000));
   console.log(`api listening on http://localhost:${port} with ${count} capabilities registered`);
 } catch (error) {
   console.error(error);
