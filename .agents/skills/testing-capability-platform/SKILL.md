@@ -25,7 +25,8 @@ The console "Apps" tab globs `apps/*/app.json` via `import.meta.glob` in
 without code changes, BUT the Vite dev server for the console may not detect files
 created outside `apps/console` (its root) — if the tile doesn't appear after a hard
 reload, restart just the console server: kill the `vite --config apps/console/...`
-process and re-run `npm run dev:console`. Deleting the folder IS picked up live.
+process and re-run `npx vite --config apps/console/vite.config.ts`. Deleting the folder
+IS picked up live.
 Platform tabs are scope-gated: Approvals (approvals:read+decide), Audit (audit:read),
 Registry (open to all), Invariants (invariants:read); switching to a user lacking the
 active tab's scopes bounces to Apps.

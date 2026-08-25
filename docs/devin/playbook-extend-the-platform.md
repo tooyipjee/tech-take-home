@@ -13,6 +13,25 @@ from what already exists. If you are unsure which tier you are in, you are in th
 - A policy number (ceiling, rate, approval threshold) must change.
 - A new domain arrives with money-moving effects and no invariants covering them.
 - An invariant is wrong: too strict (false halts) or too weak (it missed something real).
+- A new scope is needed, or an existing scope must be granted to a role (`ROLE_SCOPES`).
+- The runtime cannot express the policy the domain actually has — see step 4a.
+
+## The shape of the job
+
+A new domain is one PR with a predictable spine, and it is worth stating the size honestly:
+migration → seed → `DataSource` methods → capability declarations → derived invariants →
+adversarial database tests → change record → knowledge. Roughly:
+
+| The domain… | Extra work beyond the spine |
+| --- | --- |
+| …moves no money and needs no second signature (e.g. a flag switch) | None. `approval: { mode: "never" }`, an effect table, and the derived rate/idempotency/attribution invariants come free |
+| …moves money | `amountField`, `maxAmountCents`, and an `effect.conserves` pool so the conservation invariant can be derived; `approval: { mode: "above_amount" }` |
+| …needs a second signature that depends on the *record*, not the input | `approval: { mode: "derived_from_subject" }` and a `subject` on the capability — see step 4a |
+| …has an action that may happen only once per record | `effect.oncePerSubject`, which derives both a unique index expectation and an invariant |
+
+When you finish, hand the domain back to tier 1: the UI over the new verbs is
+[`playbook-build-an-app.md`](playbook-build-an-app.md), and it should need nothing but the
+capabilities you just declared.
 
 ## The rule that makes this tier different
 
@@ -45,14 +64,35 @@ has failed even if the code is correct.
    axiom rather than a property of one capability. Whichever route, the query returns zero rows
    when the invariant holds and one row per violation, with `subject` and `detail`, and reads
    thresholds from `capability_registry` rather than hard-coding them.
-5. **Add the migration** in `packages/db/migrations/`. Additive only. Never drop or weaken an
+5. **If the requirement depends on the record, extend the declaration, not the handler.** The
+   temptation, when "does this need a second person?" depends on the row (risk band, an unresolved
+   screening hit, an account's standing), is to answer it in the handler or — worse — in the app.
+   Both put policy where no invariant can read it. The mechanism is
+   `approval: { mode: "derived_from_subject", clauses: [...] }`: each clause is SQL over the
+   subject row aliased `s`, carrying the `approverScope` it demands and a `because` the UI can
+   show. First match wins.
+
+   Three properties to preserve if you touch this: the resolved scope is written **onto the
+   approval row** when the request is raised, so editing the clauses later cannot lower the bar on
+   something already waiting; `previewApproval()` answers the same question without performing the
+   write, which is how an app warns the user without holding a copy of the rule; and the derived
+   `carries_the_declared_approval` invariant re-evaluates the same clauses over committed data, so
+   the rule is proved rather than merely applied.
+
+6. **Add the migration** in `packages/db/migrations/`. Additive only. Never drop or weaken an
    existing constraint in the same change as a feature; that is its own PR with its own
    argument. New effect tables need an `invocation_id` with the not-null trigger and the FK
    to `audit_log`, or their rows will not be attributable to an audited invocation.
-6. **Add the capability** in `packages/capabilities`, and any `DataSource` method it needs in
+7. **Add the capability** in `packages/capabilities`, and any `DataSource` method it needs in
    `packages/db/src/datasource.ts`. Handlers still see only `input` and `ctx.data`; no SQL in
    a handler, no invocation id passed by the caller.
-7. **Add adversarial tests** in `packages/kernel/test/db/`. An invariant with no test is a
+8. **Map failures onto the outcome vocabulary the apps already render.** A new failure mode that
+   surfaces as `error` is a failure mode nobody handles. A repeated or conflicting write is
+   `conflict` — raise `StaleRevisionError` from the `DataSource` rather than letting a unique index
+   fail late; a refused write is `denied_*`; a paused capability is `halted`. Adding a *new*
+   outcome means every app must learn to render it: avoid it if an existing one is honest.
+
+9. **Add adversarial tests** in `packages/kernel/test/db/`. An invariant with no test is a
    sentence, not a guarantee — and `npm test` fails if a derived invariant is not named by a
    database test. Update the expected derived set in `packages/kernel/test/invariants.test.ts`;
    that assertion failing is the signal that a declaration changed and needs review. For each
@@ -63,15 +103,28 @@ has failed even if the code is correct.
    - the reconciler notices state that was corrupted outside the runtime;
    - the guarded capability halts, unrelated capabilities and reads keep serving;
    - the halt cannot be cleared while the data is still wrong, and can be after repair.
-8. **Write the change record** under `docs/platform-changes/`, with the sections
+10. **Write the change record** under `docs/platform-changes/`, with the sections
    `## Invariants affected`, `## How it was verified` and `## Rollback`. `npm run lint` requires
-   it: a platform edit with no change record fails the tier check.
-9. **Update the knowledge** in [`knowledge-platform-conventions.md`](knowledge-platform-conventions.md)
+   it: a platform edit with no change record fails the tier check. State which invariants appear,
+   disappear and change meaning — a *removed* invariant is the sentence a reviewer must not miss.
+   The tier check also greps for the invariant-coverage test by name, so renaming that test is a
+   deliberate act, not a tidy-up.
+
+11. **Grant the scopes, seed the data, and prove the migration from empty.** A capability whose
+   scope no role holds is unreachable, and a launcher tile naming it is permanently locked (the
+   boundary check fails on exactly that). Update `ROLE_SCOPES` in `packages/kernel/src/auth.ts` and
+   the seed in `packages/db/src/seed.ts` in the same PR. If the migration is destructive, or edits
+   a file that has already run, say so in the PR: collaborators need
+   `npm run db:down && npm run setup`, and CI applies migrations to an empty database precisely to
+   catch what only works against your volume.
+12. **Update the knowledge** in [`knowledge-platform-conventions.md`](knowledge-platform-conventions.md)
    so tier-1 sessions can find the new verb without reading the kernel. A capability nobody
    knows about is a capability that gets rebuilt badly in app code.
-10. **Verify** with `npm run lint && npm run typecheck && npm test && npm run test:db`, then
-    exercise the flow in the console as each seeded role.
-11. **Open the PR and say what changed about the guarantees.** Lead the description with the
+13. **Verify** with `npm run lint && npm run typecheck && npm test && npm run test:db &&
+    npm run reconcile && npm run build:apps`, then exercise the flow in the console as each seeded
+    role. Update the testing skills under `.agents/skills/` if the flows they describe changed — a
+    skill describing a capability you deleted is worse than no skill.
+14. **Open the PR and say what changed about the guarantees.** Lead the description with the
     invariant table from the change record and the policy declarations, then ask for review
     explicitly. Do not merge on green CI alone.
 

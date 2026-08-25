@@ -21,7 +21,7 @@
       "@platform/app-kit": ["packages/app-kit/src/index.ts"]
     }
   },
-  "include": ["packages/**/*.ts", "packages/**/*.tsx", "apps/**/*.ts", "apps/**/*.tsx", "scripts/**/*.mjs"],
-  "//": "apps/kyc-review is a standalone app with its own tsconfig (vite/client types); it is checked by npm --prefix apps/kyc-review run typecheck.",
-  "exclude": ["node_modules", "apps/kyc-review"]
+  "include": ["packages/**/*.ts", "apps/api/**/*.ts", "scripts/**/*.mjs"],
+  "//": "the platform and the API. Every folder under apps/ with a vite.config.ts owns its own tsconfig (DOM libs, vite/client types) and is checked by scripts/typecheck.mjs, so adding an app never edits this file.",
+  "exclude": ["node_modules"]
 }

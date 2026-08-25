@@ -11,8 +11,18 @@ concerns. Code that re-implements any of them in an app or a handler is wrong ev
 surface · `packages/db` migrations, seed and `DataSource` · `packages/sdk` the only platform import
 an app may use, alongside `packages/app-kit` (bound client, identity switcher, outcome banner,
 stylesheet) · `apps/api` Fastify host · `apps/console` the platform's own screens plus a launcher.
-An app is a folder under `apps/` with its own Vite config and port — today only `apps/kyc-review`,
-the KYC review queue — and a new app is a new folder, nothing more.
+An app is a folder under `apps/` with its own Vite config, port, `tsconfig.json` and `app.json` —
+today only `apps/kyc-review`, the KYC review queue.
+
+**A new app is a new folder, and nothing else.** Nothing lists the apps: `npm run dev`,
+`npm run build:apps`, `npm run typecheck`, the boundary check (`scripts/apps.mjs`) and the console
+launcher (`import.meta.glob("../../*/app.json")`) all discover every folder under `apps/` that has
+a `vite.config.ts`. Never add an app to a script or edit `apps/console/src/Launcher.tsx`. The
+manifest is the contract: `id`, `name`, `description`, `folder` (must equal `apps/<name>`), `url`
+(must name the port the Vite config pins), `scopes`, `requiredScopes` (a subset of `scopes`, and
+what the launcher uses to offer or lock the tile). `npm run lint` checks all of that, including
+that every scope named is one some role actually holds — a scope nobody can be granted means a
+permanently locked tile, and is a tier-2 escalation rather than a manifest edit.
 
 **Two tiers of work.** Building an app on top of the existing capabilities and invariants is tier 1
 (`docs/devin/playbook-build-an-app.md`). Changing the kernel, the invariants, a migration, the
@@ -20,6 +30,13 @@ capability set, the SDK or the check scripts is tier 2
 (`docs/devin/playbook-extend-the-platform.md`): more tests, a change record under
 `docs/platform-changes/`, and an explicit human review. `npm run lint` enforces the boundary —
 a platform edit with no change record fails.
+
+**Which tier a request is.** Only existing verbs, new UI → tier 1. A capability, scope, table,
+column, seed row, ceiling, rate or approval threshold that does not exist → tier 2 first, then
+tier 1 for the screen. Because the repository has exactly one domain (KYC), *any* new domain —
+refunds, feature flags, chargebacks — starts at tier 2; see `docs/devin/demo-two-apps.md`, which
+fixes feature flags as the cheap extension (state change, no conserved quantity) and refunds as
+the expensive one (amount ceiling, threshold approval, conservation invariant).
 
 **Invariants.** `packages/kernel/src/invariants.ts` generates SQL statements that must return no rows,
 from two sources: platform axioms, and each write capability's declaration — `maxAmountCents`,
@@ -57,9 +74,12 @@ eyes). All roles have `invariants:read`. Every app header switches acting user; 
 and never the requester themself.
 
 **Commands.** `npm run setup` (Postgres + migrate + seed) · `npm run dev` (api :8080 · console
-:5173 · kyc :5174; one at a time with `dev:api`, `dev:console`, `dev:kyc`) · `npm run lint` (boundary + tier check) · `npm run typecheck` · `npm test` ·
+:5173 · kyc :5174 — every app folder, discovered; one alone with
+`npx vite --config apps/<name>/vite.config.ts` plus `npm run dev:api`) · `npm run lint`
+(boundary, manifest and tier checks) · `npm run typecheck` (the platform, then each app against
+its own tsconfig) · `npm test` ·
 `npm run test:db` (invariants against a real database) · `npm run reconcile` (one-shot invariant
-check, non-zero exit on violation).
+check, non-zero exit on violation) · `npm run build:apps` (every discovered app).
 
 **Before opening a PR** run lint, typecheck and tests, and lead the description with any policy
 declarations added or changed.

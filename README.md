@@ -157,23 +157,25 @@ deployable. The console is not an app either — it is the platform's own screen
 
 **A new app is a new folder.** Copy the shape of `apps/kyc-review`: a `package.json`, an
 `index.html`, a `vite.config.ts` with its own port, `src/`, and an `app.json` describing the app
-(name, url, scopes). Add a `dev:<name>` script at the root, and that is the whole ceremony — the
-launcher discovers every `apps/*/app.json` and the boundary check picks up every folder under
-`apps/` automatically, so the new app shows up on the launcher and is held to `@platform/sdk`
-from its first commit without anyone remembering to list it. Restart `npm run dev` after adding
-the folder: the new app needs its dev server, and the console's Vite watcher only re-globs
-`app.json` files on startup.
+(name, url, scopes). That is the whole ceremony: nothing lists the apps. `npm run dev`,
+`npm run build:apps`, `npm run typecheck`, the boundary check and the console launcher all
+discover every folder under `apps/`, so a new app runs, builds, typechecks, is held to
+`@platform/sdk` and appears on the launcher from its first commit without anyone remembering to
+wire it up — and `npm run lint` fails if its `app.json` points at the wrong port or claims a scope
+no role holds. Restart `npm run dev` after adding the folder: the new app needs its dev server,
+and the console's Vite watcher only re-globs `app.json` files on startup.
 
 ## Scripts
 
 | Command | Purpose |
 | --- | --- |
 | `npm run setup` | Postgres up, migrate, reset + seed |
-| `npm run dev` | API, console and the app together |
-| `npm run dev:kyc` | Just the KYC review queue, on :5174 |
+| `npm run dev` | API plus every app folder, discovered rather than listed |
+| `npx vite --config apps/kyc-review/vite.config.ts` | One app alone (with `npm run dev:api` beside it) |
 | `npm run db:reset` | Wipe transactional state, re-seed |
-| `npm run typecheck` | `tsc --noEmit` across the workspace |
-| `npm run lint` | Boundary check (apps may not import the db, kernel, capabilities, or call `fetch`) and tier check (a platform edit needs a change record) |
+| `npm run typecheck` | The platform and the API, then each app against its own tsconfig |
+| `npm run build:apps` | Production build of every app folder |
+| `npm run lint` | Boundary check (apps may not import the db, kernel, capabilities, or call `fetch`; every `app.json` names a real port and real scopes) and tier check (a platform edit needs a change record) |
 | `npm test` | Kernel policy-declaration and invariant-derivation tests, including that every derived invariant is attacked by a database test |
 | `npm run test:db` | The invariants, attacked against a real database |
 | `npm run reconcile` | One-shot invariant check; exits non-zero on a violation |
@@ -187,6 +189,8 @@ the folder: the new app needs its dev server, and the console's Vite watcher onl
 - [Playbook, tier 1](docs/devin/playbook-build-an-app.md) — build an app from what exists
 - [Playbook, tier 2](docs/devin/playbook-extend-the-platform.md) — the only route that may change
   a rule, a capability or a migration
+- [Two apps, two tiers](docs/devin/demo-two-apps.md) — which next app needs only tier 1, which
+  needs the platform extended first, and why
 - [Platform changes](docs/platform-changes) — what each tier-2 change did to the guarantees
 
 ## Status

@@ -12,7 +12,7 @@ description: How to run and UI-test the kyc-review app (apps/kyc-review), which 
   npm run setup     # Postgres in Docker, migrate, seed — required
   npm run dev       # api :8080 · console :5173 · kyc :5174
   ```
-  `npm run dev:kyc` alone will render "Connecting to the platform…" forever without the API.
+  `npx vite --config apps/kyc-review/vite.config.ts` alone will render "Connecting to the platform…" forever without the API.
 - Checks: `npm run -w @align/kyc-review lint` and `npm run -w @align/kyc-review build`.
 - Do not reach for `pnpm` here; the root workspace is npm, and corepack has broken signature keys on
   Devin boxes.
