@@ -19,7 +19,8 @@ launch it with the exec tool's background mode (`timeout: 0`) rather than a shel
 dies with the call. Verify with `for p in 8080 5173 5174 5177 5178; do curl -s -o /dev/null
 -w "$p:%{http_code}\n" localhost:$p; done` — the API answers 404 on `/`, which is healthy.
 If the API 500s on `/api/invariants` with `column "invariant_id" does not exist`, the
-Docker volume straddles the old tenets→invariants migration rename. Fix with a fresh
+Docker volume predates the current migrations (`0003_invariants.sql` was once
+`0003_tenets.sql`, a rename rather than a new migration). Fix with a fresh
 volume: `docker compose down -v && npm run setup` (restart the API afterwards — dropping
 the DB kills its pg pool).
 Postgres runs in the container `platform-db` on host port 5433. Inspect state with:
