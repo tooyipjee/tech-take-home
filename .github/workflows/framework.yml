@@ -1,0 +1,71 @@
+name: framework
+
+# The expensive half of CI: anything that could change what the platform is able to
+# prove. Runs on every push to main so a merge is always verified, and on any pull
+# request that touches the kernel, the data layer, the capability surface or the SDK.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "packages/**"
+      - "apps/api/**"
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/framework.yml"
+
+jobs:
+  checks:
+    name: lint, typecheck, derivation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      # Boundary check (an app may not import the kernel, the db or call fetch) and
+      # tier check (a platform edit needs a change record).
+      - run: npm run lint
+      - run: npm run typecheck
+      # Structural proof about the invariants themselves: the derived set is the
+      # expected one, thresholds are read from the registry rather than copied, and
+      # no invariant is in force without a database test attacking it.
+      - run: npm test
+
+  database:
+    name: invariants against postgres
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: platform
+          POSTGRES_DB: platform
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U platform -d platform"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      # Migrations are applied to an empty database, so a migration that only works
+      # against a developer's existing volume fails here.
+      - run: npm run db:migrate
+      - run: npm run db:seed
+      # The adversarial suite: raw-SQL inserts, forged audit rows, edited history, a
+      # handler that moves more than it declared.
+      - run: npm run test:db
+      # Committed data must satisfy every invariant; non-zero exit on a violation.
+      - run: npm run db:reset
+      - run: npm run reconcile

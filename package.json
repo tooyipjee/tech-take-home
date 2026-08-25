@@ -15,6 +15,7 @@
     "dev": "concurrently -n api,console -c cyan,magenta \"npm:dev:api\" \"npm:dev:console\"",
     "dev:api": "tsx watch apps/api/src/main.ts",
     "dev:console": "vite --config apps/console/vite.config.ts",
+    "build:console": "vite build --config apps/console/vite.config.ts",
     "typecheck": "tsc --noEmit",
     "lint": "node scripts/check-boundaries.mjs && node scripts/check-tier.mjs",
     "test": "tsx --test packages/kernel/test/*.test.ts",

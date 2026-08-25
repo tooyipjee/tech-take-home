@@ -1,0 +1,28 @@
+name: apps
+
+# The cheap half. An app cannot move money, skip an audit record or weaken an
+# invariant — the runtime and the database decide those, and the framework workflow
+# proves it. So app CI only asks: did it stay inside the boundary, does it typecheck,
+# does it build? Anything heavier would be theatre, and slow app work down for nothing.
+on:
+  pull_request:
+    paths:
+      - "apps/console/**"
+      - ".github/workflows/apps.yml"
+
+jobs:
+  apps:
+    name: boundary, typecheck, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      # Fails if an app imports the kernel, the data layer, a capability handler,
+      # `pg`, or calls `fetch` directly.
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build:console
