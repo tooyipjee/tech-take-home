@@ -1,10 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { Actor, CapabilityInput, CapabilityName, CapabilityOutput, Role } from './contracts';
+import type { Actor, CapabilityInput, CapabilityName, CapabilityOutput } from './contracts';
 import type { CapabilityClient, CapabilityResult } from './client';
 import { createHttpCapabilityClient } from './client';
 import { MockKernel } from './mock/kernel';
-import { ACTORS } from './mock/fixtures';
+import { ACTOR_DIRECTORY } from './mock/fixtures';
 
 export interface Toast {
   id: number;
@@ -16,7 +16,8 @@ export interface Toast {
 
 interface PlatformContextValue {
   actor: Actor;
-  setRole: (role: Role) => void;
+  directory: Actor[];
+  setActorId: (userId: string) => void;
   adapter: 'mock' | 'http';
   /** Version counter that changes whenever a capability mutated state, so views can refetch. */
   version: number;
@@ -38,8 +39,8 @@ function createClient(actor: Actor): CapabilityClient {
 }
 
 export function PlatformProvider({ children }: { children: ReactNode }) {
-  const [role, setRoleState] = useState<Role>('kyc_reviewer');
-  const actor = ACTORS[role];
+  const [actorId, setActorId] = useState(ACTOR_DIRECTORY[0].userId);
+  const actor = ACTOR_DIRECTORY.find((entry) => entry.userId === actorId) ?? ACTOR_DIRECTORY[0];
   const clientRef = useRef<CapabilityClient>();
   if (!clientRef.current) clientRef.current = createClient(actor);
   const client = clientRef.current;
@@ -86,7 +87,8 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
   const value = useMemo<PlatformContextValue>(
     () => ({
       actor,
-      setRole: setRoleState,
+      directory: ACTOR_DIRECTORY,
+      setActorId,
       adapter: client.kind,
       version,
       toasts,
