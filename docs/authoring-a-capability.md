@@ -26,6 +26,8 @@ export const submitEvidence = defineWrite({
     limits: { maxAmountCents: null, maxPerHour: 60 },
     approval: { mode: "never" },
     approverScope: "approvals:decide",
+    // Where the write lands. Every write declares one, or it does not register.
+    effect: { table: "dispute_evidence", subjectColumn: "dispute_id", oncePerSubject: true },
   },
   handler: async (input, ctx) => { /* only ctx.data and input are in scope */ },
 });
@@ -36,9 +38,9 @@ export const submitEvidence = defineWrite({
 - A write capability that omits `limits` or `approval` **fails to register at boot**.
 - A capability declaring an amount ceiling or amount-based approval without an `amountField`
   **fails to register at boot**.
-- A capability that moves money (a non-null `maxAmountCents`) without an `effect` declaration
-  **fails to register at boot**: with nowhere named for the money to land, no invariant can be
-  derived and nothing about it could be proved after the fact.
+- **Every** write without an `effect` declaration **fails to register at boot**: with nowhere named
+  for the row to land, no invariant can be derived and the audit row would be the only evidence. A
+  capability that moves money must also name the `amountColumn` inside it.
 - The `effect` declaration generates this capability's invariants — attribution, conservation
   against the pool it names, the ceiling, the approval rule, the rate, idempotency — which are
   then proved inside its own transaction and re-proved by the reconciler.
