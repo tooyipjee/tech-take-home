@@ -5,7 +5,7 @@ import { SarDesk } from "./SarDesk.tsx";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <AppShell title="SAR desk" note="an app: it calls capabilities, never the database">
+    <AppShell title="SAR desk">
       {(actorId) => <SarDesk actorId={actorId} />}
     </AppShell>
   </React.StrictMode>,

@@ -31,11 +31,11 @@ export function RiskPill({ band, score }: { band: RiskBand; score: number }) {
 /** Shows the registered policy the runtime will apply, so the rules are visible rather than implied. */
 export function PolicyChip({ capability }: { capability: CapabilityName }) {
   const descriptor = useDescriptor(capability);
-  if (!descriptor) return null;
+  const text = descriptor ? describePolicy(descriptor) : '';
+  if (!descriptor || text === '') return null;
   return (
-    <span className="policy-chip" title={descriptor.summary}>
-      <code>{capability}</code>
-      <span>{describePolicy(descriptor)}</span>
+    <span className="policy-chip" title={`${descriptor.summary} (${capability})`}>
+      {text}
     </span>
   );
 }
@@ -60,6 +60,7 @@ export function relativeTime(iso: string): string {
   const deltaMs = new Date(iso).getTime() - Date.now();
   const minutes = Math.round(deltaMs / 60_000);
   const abs = Math.abs(minutes);
+  if (abs < 1) return 'just now';
   const [value, unit] = abs < 60 ? [abs, 'min'] : abs < 1440 ? [Math.round(abs / 60), 'hr'] : [Math.round(abs / 1440), 'day'];
   const plural = value === 1 ? '' : 's';
   return minutes < 0 ? `${value} ${unit}${plural} ago` : `in ${value} ${unit}${plural}`;

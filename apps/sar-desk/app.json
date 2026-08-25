@@ -1,7 +1,7 @@
 {
   "id": "sar-desk",
   "name": "SAR desk",
-  "description": "File suspicious activity reports. Always countersigned by a second kyc:sar holder; once per case.",
+  "description": "File a suspicious activity report on a case. Every filing is countersigned by a second officer.",
   "folder": "apps/sar-desk",
   "url": "http://localhost:5177",
   "scopes": ["kyc:read", "kyc:sar", "approvals:read", "approvals:decide"],

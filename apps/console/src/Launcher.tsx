@@ -13,7 +13,7 @@ export interface AppManifest {
   description: string;
   folder: string;
   url: string;
-  /** Every scope the app's capabilities use — shown on the tile. */
+  /** Every scope the app's capabilities use. Not shown: this is the platform's business, not the user's. */
   scopes: string[];
   /** The minimum to offer the tile. Presentation only: the runtime re-checks on every call. */
   requiredScopes: string[];
@@ -29,20 +29,23 @@ function missingScopes(entry: AppManifest, held: string[]): string[] {
   return entry.requiredScopes.filter((scope) => !held.includes(scope));
 }
 
+/** Deterministic per app, so a tile keeps its colour as apps come and go. */
+function hue(id: string): number {
+  let acc = 0;
+  for (const character of id) acc = (acc * 31 + character.charCodeAt(0)) % 360;
+  return acc;
+}
+
 export function Launcher({ user }: { user: PlatformUser | undefined }) {
   const held = user?.scopes ?? [];
+  const firstName = user?.name.split(" ")[0];
 
   return (
     <>
-      <h2>Apps</h2>
-      <p className="hint">
-        {user
-          ? `Signed in as ${user.name} — ${user.role}, ${held.length} scopes. Locked tiles show what is missing.`
-          : "Loading identity…"}{" "}
-        Each app is a folder in <code>apps/</code> with its own dev server and an <code>app.json</code>,
-        talking to this platform through <code>@rangka/sdk</code>. Tile availability is presentation
-        only; the runtime re-checks scopes on every capability call.
-      </p>
+      <div className="launcher-head">
+        <h2>{firstName ? `Good to see you, ${firstName}.` : "Welcome."}</h2>
+        <p className="hint">Choose an app to get to work.</p>
+      </div>
       <div className="tile-grid">
         {APPS.map((entry) => (
           <Tile key={entry.id} entry={entry} held={held} />
@@ -53,36 +56,28 @@ export function Launcher({ user }: { user: PlatformUser | undefined }) {
 }
 
 function Tile({ entry, held }: { entry: AppManifest; held: string[] }) {
-  const missing = missingScopes(entry, held);
-  const locked = missing.length > 0;
+  const locked = missingScopes(entry, held).length > 0;
 
   function open() {
     if (!locked) window.open(entry.url, "_blank", "noopener");
   }
 
   return (
-    <button className={`tile${locked ? " locked" : ""}`} onClick={open} disabled={locked}>
-      <span className="tile-head">
-        <span className="tile-name">{entry.name}</span>
-        {locked ? <span className="badge bad">locked</span> : <span className="badge ok">open</span>}
+    <button
+      className={`tile${locked ? " locked" : ""}`}
+      onClick={open}
+      disabled={locked}
+      style={{ ["--tile-hue" as string]: hue(entry.id) }}
+    >
+      <span className="tile-glyph" aria-hidden="true">
+        {entry.name.slice(0, 1)}
       </span>
+      <span className="tile-name">{entry.name}</span>
       <span className="tile-desc">{entry.description}</span>
       <span className="tile-foot">
-        <code>{entry.folder}</code>{" "}
-        {entry.scopes.map((scope) => (
-          <span key={scope} className="badge">
-            {scope}
-          </span>
-        ))}
+        {locked ? "Your role does not have access" : "Open"}
+        {locked ? null : <span aria-hidden="true"> →</span>}
       </span>
-      {locked ? (
-        <span className="tile-missing">
-          requires{" "}
-          {missing.map((scope) => (
-            <code key={scope}>{scope}</code>
-          ))}
-        </span>
-      ) : null}
     </button>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { PlatformUser } from "@rangka/sdk";
-import { platform, setActingUser } from "@rangka/app-kit";
+import { platform, setActingUser, Brand, initials, roleTitle } from "@rangka/app-kit";
 import { ApprovalsInbox } from "./platform/ApprovalsInbox.tsx";
 import { AuditLog } from "./platform/AuditLog.tsx";
 import { RegistryView } from "./platform/RegistryView.tsx";
@@ -54,8 +54,8 @@ export function App() {
   return (
     <>
       <header className="shell">
-        <h1>Rangka</h1>
-        <span className="badge">apps call capabilities, never the database</span>
+        <Brand />
+        <span className="shell-tagline">internal tools for compliance operations</span>
         <span className="spacer" />
         {/*
           Development sign-in. Identity is a solved problem, so it is mocked:
@@ -64,18 +64,27 @@ export function App() {
           control and `resolvePrincipal` — nothing else, because everything
           downstream only ever sees a resolved Principal.
         */}
-        <label htmlFor="actor">
-          <code>signed in as</code>
+        <label
+          className="identity"
+          htmlFor="actor"
+          title="Development sign-in — stands in for OAuth/OIDC; only this control and resolvePrincipal change in production"
+        >
+          <span className="avatar" aria-hidden="true">
+            {current ? initials(current.name) : "··"}
+          </span>
+          <span className="identity-words">
+            <select id="actor" value={userId} onChange={(event) => switchUser(event.target.value)}>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+            <span className="identity-role">
+              {current ? roleTitle(current.role) : "signing in…"}
+            </span>
+          </span>
         </label>
-        <select id="actor" value={userId} onChange={(event) => switchUser(event.target.value)}>
-          {users.map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.name}
-            </option>
-          ))}
-        </select>
-        <span className="badge">{current ? `${current.role} · ${current.scopes.length} scopes` : "…"}</span>
-        <span className="badge warn">mock identity — swaps for OAuth/OIDC</span>
       </header>
 
       <nav className="tabs">
@@ -84,7 +93,7 @@ export function App() {
             key={entry.id}
             className={tab === entry.id ? "active" : ""}
             disabled={locked(entry)}
-            title={locked(entry) ? `requires ${entry.scopes.join(", ")}` : undefined}
+            title={locked(entry) ? "Your role does not have access to this" : undefined}
             onClick={() => setTab(entry.id)}
           >
             {entry.label}

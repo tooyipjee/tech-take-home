@@ -1,7 +1,7 @@
 {
   "id": "kyc-review",
   "name": "KYC review queue",
-  "description": "Onboarding cases: PII reveal is metered, decisions are four-eyed, SARs need compliance.",
+  "description": "Work through onboarding cases: check the applicant, ask for missing information, and approve or reject.",
   "folder": "apps/kyc-review",
   "url": "http://localhost:5174",
   "scopes": ["kyc:read", "kyc:pii", "kyc:review", "kyc:decide", "kyc:sar"],

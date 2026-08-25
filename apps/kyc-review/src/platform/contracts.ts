@@ -203,6 +203,27 @@ export const CAPABILITY_NAMES: CapabilityName[] = [
   'kyc.case.sar.file',
 ];
 
+/**
+ * What each capability is called on an audit line. The audit log is read by
+ * compliance, not by engineers, so it says what happened; the capability name is
+ * still what the runtime recorded and is shown for anything this app does not know.
+ */
+const ACTION_LABEL: Record<CapabilityName, string> = {
+  'kyc.cases.list': 'Viewed the queue',
+  'kyc.cases.get': 'Opened a case',
+  'kyc.case.pii.reveal': 'Revealed applicant identity',
+  'kyc.case.claim': 'Claimed a case',
+  'kyc.case.requestInfo': 'Requested more information',
+  'kyc.case.escalate': 'Escalated for enhanced diligence',
+  'kyc.case.approve': 'Approved the applicant',
+  'kyc.case.reject': 'Rejected the applicant',
+  'kyc.case.sar.file': 'Filed a suspicious activity report',
+};
+
+export function actionLabel(capability: string): string {
+  return isCapabilityName(capability) ? ACTION_LABEL[capability] : capability;
+}
+
 const isCapabilityName = (name: string): name is CapabilityName =>
   (CAPABILITY_NAMES as string[]).includes(name);
 
@@ -232,13 +253,15 @@ export function scopeOf(descriptor: KycCapabilityDescriptor): string {
   return stringField(descriptor.policy, 'scope') ?? 'unknown';
 }
 
-/** One line of the declared policy, for display next to the button it governs. */
+/**
+ * The declared policy in the words a reviewer would use, for display next to the
+ * button it governs. Reads have nothing worth saying, so they say nothing: the
+ * point of showing this is to warn someone before they act, not to narrate the
+ * registry. The text is derived from the served declaration, never written here.
+ */
 export function describePolicy(descriptor: KycCapabilityDescriptor): string {
+  if (descriptor.kind === 'read') return '';
   const policy = descriptor.policy;
-  const scope = scopeOf(descriptor);
-  if (descriptor.kind === 'read') {
-    return `${scope} · read · ≤${numberField(policy, 'maxRows') ?? '?'} rows`;
-  }
   const limits = policy.limits;
   const perHour =
     limits && typeof limits === 'object' ? numberField(limits as Record<string, unknown>, 'maxPerHour') : null;
@@ -248,8 +271,13 @@ export function describePolicy(descriptor: KycCapabilityDescriptor): string {
       ? (stringField(approval as Record<string, unknown>, 'mode') ?? 'never')
       : 'never';
   const approvalText =
-    mode === 'derived_from_subject' ? 'approval: depends on the case' : `approval: ${mode}`;
-  return `${scope} · write · ${perHour ?? '?'}/hour · ${approvalText}`;
+    mode === 'always'
+      ? 'Needs a second officer to sign off'
+      : mode === 'derived_from_subject'
+        ? 'May need a second officer to sign off, depending on the case'
+        : null;
+  const rateText = perHour === null ? null : `up to ${perHour} an hour`;
+  return [approvalText, rateText].filter(Boolean).join(' · ');
 }
 
 export const REJECT_REASONS: { code: RejectReasonCode; label: string }[] = [

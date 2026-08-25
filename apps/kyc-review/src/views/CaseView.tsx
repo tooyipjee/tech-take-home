@@ -56,7 +56,6 @@ function CaseDetailPanel({
         </h2>
         <StatusPill status={detail.status} />
         <RiskPill band={detail.riskBand} score={detail.riskScore} />
-        <span className="muted">revision r{detail.revision}</span>
         <span className="spacer" />
         {detail.assignedTo === actor.id ? (
           <span className="muted">Assigned to you</span>
@@ -389,10 +388,12 @@ function DecisionCard({
         <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={4} />
       </label>
 
+      {/*
+        The idempotency key is still `case:revision` on every submit — it is just not
+        on screen, because a double-click being safe is the platform's promise to keep,
+        not a fact the reviewer should have to read.
+      */}
       <div className="row">
-        <span className="muted">
-          Idempotency: <code>{`${detail.id}:r${detail.revision}`}</code>
-        </span>
         <span className="spacer" />
         <button type="button" className="btn btn--primary" onClick={submit} disabled={terminal}>
           {mode === 'sar' ? 'File SAR' : mode === 'info' ? 'Send request' : `Submit ${mode}`}

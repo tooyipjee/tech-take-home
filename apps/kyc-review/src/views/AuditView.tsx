@@ -1,4 +1,5 @@
 import { usePlatform, usePlatformData } from '../platform/PlatformProvider';
+import { actionLabel } from '../platform/contracts';
 import { Empty, Section, relativeTime } from '../components/ui';
 
 /** The platform audit log, unfiltered by the app: refusals appear next to effects. */
@@ -21,14 +22,12 @@ export function AuditView() {
         <table className="table">
           <thead>
             <tr>
-              <th>Audit ID</th>
+              <th>Reference</th>
               <th>When</th>
-              <th>Actor</th>
-              <th>Capability</th>
+              <th>Who</th>
+              <th>Action</th>
               <th>Outcome</th>
-              <th>Approval</th>
-              <th>ms</th>
-              <th>Detail</th>
+              <th>Countersigned</th>
             </tr>
           </thead>
           <tbody>
@@ -38,21 +37,12 @@ export function AuditView() {
                   <code>{entry.id}</code>
                 </td>
                 <td className="muted">{relativeTime(entry.at)}</td>
-                <td>
-                  {nameOf(entry.actorId)}
-                  <span className="muted"> · {entry.actorRole}</span>
-                </td>
-                <td>
-                  <code>{entry.capability}</code>
-                </td>
+                <td>{nameOf(entry.actorId)}</td>
+                <td title={entry.capability}>{actionLabel(entry.capability)}</td>
                 <td>
                   <span className={`pill pill--${entry.outcome}`}>{entry.outcome.replace(/_/g, ' ')}</span>
                 </td>
-                <td className="muted">
-                  <code>{entry.approvalId ?? '—'}</code>
-                </td>
-                <td className="muted">{entry.durationMs}</td>
-                <td className="detail">{entry.error ?? JSON.stringify(entry.input)}</td>
+                <td className="muted">{entry.approvalId ? 'yes' : '—'}</td>
               </tr>
             ))}
           </tbody>

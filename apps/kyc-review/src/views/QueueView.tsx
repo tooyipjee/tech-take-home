@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useCapability } from '../platform/PlatformProvider';
 import type { CaseStatus, RiskBand } from '../platform/contracts';
-import { Empty, PolicyChip, RiskPill, Section, StatusPill, relativeTime } from '../components/ui';
+import { Empty, RiskPill, Section, StatusPill, relativeTime } from '../components/ui';
 
 const STATUSES: (CaseStatus | 'all')[] = [
   'all',
@@ -25,7 +25,7 @@ export function QueueView({ onOpen }: { onOpen: (caseId: string) => void }) {
   const cases = data?.cases ?? [];
 
   return (
-    <Section title="Review queue" aside={<PolicyChip capability="kyc.cases.list" />}>
+    <Section title="Review queue">
       <div className="filters">
         <label>
           Status
@@ -92,7 +92,6 @@ export function QueueView({ onOpen }: { onOpen: (caseId: string) => void }) {
                 <tr key={item.id} onClick={() => onOpen(item.id)} className="table__row">
                   <td>
                     <code>{item.reference}</code>
-                    <span className="muted"> r{item.revision}</span>
                   </td>
                   <td>
                     {item.applicantName}
