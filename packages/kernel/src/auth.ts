@@ -7,12 +7,6 @@ import type { Principal, Role } from "./types.ts";
  */
 export const ROLE_SCOPES: Record<Role, string[]> = {
   agent: [
-    "payments:read",
-    "refunds:read",
-    "refunds:write",
-    "queue:read",
-    "queue:write",
-    "flags:read",
     "kyc:read",
     "kyc:pii",
     "kyc:review",
@@ -21,12 +15,6 @@ export const ROLE_SCOPES: Record<Role, string[]> = {
     "invariants:read",
   ],
   supervisor: [
-    "payments:read",
-    "refunds:read",
-    "refunds:write",
-    "queue:read",
-    "queue:write",
-    "flags:read",
     "kyc:read",
     "kyc:pii",
     "kyc:review",
@@ -37,13 +25,6 @@ export const ROLE_SCOPES: Record<Role, string[]> = {
     "invariants:read",
   ],
   admin: [
-    "payments:read",
-    "refunds:read",
-    "refunds:write",
-    "queue:read",
-    "queue:write",
-    "flags:read",
-    "flags:write",
     "kyc:read",
     "kyc:pii",
     "kyc:review",

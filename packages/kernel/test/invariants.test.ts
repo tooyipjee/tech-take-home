@@ -25,58 +25,80 @@ test("every invariant is well formed and says what it was derived from", () => {
   }
 });
 
-test("declaring refunds.issue derives its whole rule set", () => {
+test("declaring kyc.case.approve derives its whole rule set", () => {
   assert.deepEqual(
-    invariants()
+    invariantsFor("kyc.case.approve")
       .map((invariant) => invariant.id)
       .sort(),
     [
-      "approvals.decided_by_a_second_person",
-      "refunds.issue.carries_the_declared_approval",
-      "refunds.issue.conserves_payments",
-      "refunds.issue.effects_are_attributed",
-      "refunds.issue.is_idempotent",
-      "refunds.issue.respects_declared_ceiling",
-      "refunds.issue.respects_declared_rate",
+      "kyc.case.approve.carries_the_declared_approval",
+      "kyc.case.approve.effects_are_attributed",
+      "kyc.case.approve.happens_at_most_once_per_subject",
+      "kyc.case.approve.is_idempotent",
+      "kyc.case.approve.respects_declared_rate",
     ],
     "the derived set changing means a declaration changed; that is a tier-2 review",
   );
 });
 
-test("every rule a policy declares is proved after the fact, in the same transaction", () => {
-  const guarded = invariantsFor("refunds.issue").map((invariant) => invariant.id);
-  for (const rule of [
-    "refunds.issue.conserves_payments",
-    "refunds.issue.effects_are_attributed",
-    "refunds.issue.respects_declared_ceiling",
-    "refunds.issue.carries_the_declared_approval",
-    "refunds.issue.respects_declared_rate",
-    "refunds.issue.is_idempotent",
-  ]) {
-    assert.ok(guarded.includes(rule), `${rule} is declared but never proved`);
+test("every write in the registry is guarded, and only writes are", () => {
+  const guarded = new Map<string, string[]>();
+  for (const invariant of invariants()) {
+    for (const capability of invariant.postconditionFor) {
+      guarded.set(capability, [...(guarded.get(capability) ?? []), invariant.id]);
+    }
+  }
+  assert.deepEqual(
+    [...guarded.keys()].sort(),
+    [
+      "kyc.case.approve",
+      "kyc.case.claim",
+      "kyc.case.escalate",
+      "kyc.case.pii.reveal",
+      "kyc.case.reject",
+      "kyc.case.requestInfo",
+      "kyc.case.sar.file",
+    ],
+    "a write with no derived rule would be an unprovable money-adjacent action",
+  );
+  for (const [capability, ids] of guarded) {
+    for (const kind of ["effects_are_attributed", "is_idempotent", "respects_declared_rate"]) {
+      assert.ok(
+        ids.includes(`${capability}.${kind}`),
+        `${capability} declares ${kind} but it is never proved`,
+      );
+    }
   }
 });
 
 test("thresholds inside a derived invariant come from the registry, not a second copy", () => {
-  const ceiling = getInvariant("refunds.issue.respects_declared_ceiling");
-  assert.match(ceiling?.query ?? "", /from capability_registry where name = 'refunds\.issue'/);
-  assert.doesNotMatch(ceiling?.query ?? "", /200000/, "a hard-coded threshold can drift");
+  const rate = getInvariant("kyc.case.sar.file.respects_declared_rate");
+  assert.match(rate?.query ?? "", /from capability_registry where name = 'kyc\.case\.sar\.file'/);
+  assert.doesNotMatch(rate?.query ?? "", /\b5\b/, "a hard-coded threshold can drift");
 });
 
-test("a capability that moves money must declare where the money lands", () => {
+test("who must approve is read off the case, not baked into the statement", () => {
+  const approval = getInvariant("kyc.case.approve.carries_the_declared_approval");
+  // The rule the reviewer wrote — sanctions exposure needs compliance — appears in
+  // the proof itself, so history is judged by the same clause the runtime applied.
+  assert.match(approval?.query ?? "", /kyc:sar/);
+  assert.match(approval?.query ?? "", /kyc_screening_hits/);
+  assert.match(approval?.query ?? "", /approver_scope/);
+});
+
+test("a write must declare where its effect lands", () => {
   assert.throws(
     () =>
       defineWrite({
         name: "test.unprovable",
-        summary: "moves money without declaring an effect",
-        input: z.object({ amountCents: z.number() }),
+        summary: "changes a case without declaring an effect",
+        input: z.object({ caseId: z.string() }),
         policy: {
-          scope: "refunds:write",
+          scope: "kyc:decide",
           idempotent: true,
-          limits: { maxAmountCents: 1000, maxPerHour: 1 },
+          limits: { maxAmountCents: null, maxPerHour: 1 },
           approval: { mode: "never" },
           approverScope: "approvals:decide",
-          amountField: "amountCents",
         },
         handler: async () => ({}),
       }),
@@ -84,18 +106,27 @@ test("a capability that moves money must declare where the money lands", () => {
   );
 });
 
-test("no invariant is in force without a test that attacks it", () => {
+test("no invariant is in force without a test that attacks it, by kind", () => {
   const sources = readdirSync("packages/kernel/test/db")
     .filter((entry) => entry.endsWith(".ts"))
     .map((entry) => readFileSync(`packages/kernel/test/db/${entry}`, "utf8"))
     .join("\n");
-  const untested = invariants()
-    .map((invariant) => invariant.id)
-    .filter((id) => !sources.includes(id));
+  // Every derived id is re-run against committed data by the reconciliation test;
+  // this asserts each *kind* of statement is also attacked by name, so a new
+  // derivation cannot ship with nothing but a green reconcile behind it.
+  const kinds = new Set(
+    invariants().map((invariant) =>
+      invariant.id.startsWith("approvals.") ? invariant.id : invariant.id.split(".").pop() ?? "",
+    ),
+  );
+  const untested = [...kinds].filter((kind) => !sources.includes(kind)).sort();
   assert.deepEqual(untested, [], "an invariant with no test is a sentence, not a guarantee");
 });
 
 test("getInvariant finds an invariant by id", () => {
-  assert.equal(getInvariant("refunds.issue.conserves_payments")?.halts[0], "refunds.issue");
+  assert.equal(
+    getInvariant("kyc.case.approve.carries_the_declared_approval")?.halts[0],
+    "kyc.case.approve",
+  );
   assert.equal(getInvariant("nope"), undefined);
 });

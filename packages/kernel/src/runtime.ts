@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createDataSource, withClient, withTransaction } from "@platform/db";
+import { createDataSource, StaleRevisionError, withClient, withTransaction } from "@platform/db";
 import type { PgClient } from "@platform/db";
 import { resolvePrincipal } from "./auth.ts";
 import { activeHalt } from "./reconciler.ts";
@@ -91,11 +91,76 @@ function amountFrom(input: unknown, path: string | undefined): number | null {
   return typeof cursor === "number" ? cursor : null;
 }
 
-function approvalRequired(capability: WriteCapability, amountCents: number | null): boolean {
+export interface ApprovalRequirement {
+  approverScope: string;
+  reason: string;
+}
+
+/**
+ * What the runtime would demand of this call, without performing it.
+ *
+ * An app has to tell a reviewer "this will be held for compliance" before they press
+ * the button. Asking the runtime is the only way to say that without a second copy of
+ * the rule in the UI, which would be free to disagree with the one being enforced.
+ */
+export async function previewApproval(
+  capabilityName: string,
+  input: unknown,
+): Promise<ApprovalRequirement | null> {
+  const capability = getCapability(capabilityName);
+  if (!capability || capability.kind !== "write") return null;
+  const write = capability as WriteCapability;
+  const amountCents = amountFrom(input, write.policy.amountField);
+  return withClient((client) => approvalRequired(client, write, input, amountCents));
+}
+
+/**
+ * Whether this call needs a second person, and which scope they must hold.
+ *
+ * For a data-derived rule the question is asked of the record, in SQL, from the
+ * declaration — so an app cannot decide for itself that its case is low risk, and the
+ * runtime and the after-the-fact invariant read the same clauses.
+ */
+async function approvalRequired(
+  client: PgClient,
+  capability: WriteCapability,
+  input: unknown,
+  amountCents: number | null,
+): Promise<ApprovalRequirement | null> {
   const rule = capability.policy.approval;
-  if (rule.mode === "never") return false;
-  if (rule.mode === "always") return true;
-  return amountCents !== null && amountCents > rule.amountCents;
+  const declared = { approverScope: capability.policy.approverScope };
+
+  if (rule.mode === "never") return null;
+  if (rule.mode === "always") {
+    return { ...declared, reason: `${capability.name} always requires approval` };
+  }
+  if (rule.mode === "above_amount") {
+    return amountCents !== null && amountCents > rule.amountCents
+      ? {
+          ...declared,
+          reason: `amount ${amountCents} is above the ${rule.amountCents} approval threshold`,
+        }
+      : null;
+  }
+
+  const subject = capability.policy.subject;
+  if (!subject) return null;
+  const subjectId = (input as Record<string, unknown>)[subject.idField];
+  if (typeof subjectId !== "string") return null;
+
+  const clauses = rule.clauses
+    .map((clause, index) => `(${clause.when}) as clause_${index}`)
+    .join(", ");
+  const { rows } = await client.query<Record<string, boolean>>(
+    `select ${clauses} from ${subject.table} s where s.id = $1`,
+    [subjectId],
+  );
+  const row = rows[0];
+  if (!row) return null;
+
+  const matched = rule.clauses.findIndex((_clause, index) => row[`clause_${index}`] === true);
+  const clause = rule.clauses[matched];
+  return clause ? { approverScope: clause.approverScope, reason: clause.because } : null;
 }
 
 async function countRecentAccepted(
@@ -203,19 +268,25 @@ export async function invoke<T = unknown>(request: InvokeRequest): Promise<Invok
     );
   }
 
-  if (!request.approvalGrant && approvalRequired(write, amountCents)) {
+  const requirement = request.approvalGrant
+    ? null
+    : await withClient((client) => approvalRequired(client, write, input, amountCents));
+
+  if (requirement) {
     const approvalId = `apr_${randomUUID().slice(0, 8)}`;
     await withClient(async (client) => {
       await client.query(
-        `insert into approvals (id, capability, input, amount_cents, reason, requested_by, status, idempotency_key)
-         values ($1, $2, $3, $4, $5, $6, 'pending', $7)`,
+        `insert into approvals
+           (id, capability, input, amount_cents, reason, requested_by, status, approver_scope, idempotency_key)
+         values ($1, $2, $3, $4, $5, $6, 'pending', $7, $8)`,
         [
           approvalId,
           write.name,
           JSON.stringify(redact(input)),
           amountCents,
-          describeApproval(write, amountCents),
+          requirement.reason,
           principal.id,
+          requirement.approverScope,
           request.idempotencyKey,
         ],
       );
@@ -236,7 +307,7 @@ export async function invoke<T = unknown>(request: InvokeRequest): Promise<Invok
     return {
       outcome: "pending_approval",
       approvalId,
-      message: `held for approval by someone with ${write.policy.approverScope}`,
+      message: `held for approval by someone with ${requirement.approverScope}: ${requirement.reason}`,
     };
   }
 
@@ -258,15 +329,6 @@ function clampRows(capability: Capability, input: unknown): unknown {
   const record = input as Record<string, unknown>;
   if (typeof record.limit !== "number") return input;
   return { ...record, limit: Math.min(record.limit, capability.policy.maxRows) };
-}
-
-function describeApproval(capability: WriteCapability, amountCents: number | null): string {
-  const rule = capability.policy.approval;
-  if (rule.mode === "always") return `${capability.name} always requires approval`;
-  if (rule.mode === "above_amount") {
-    return `amount ${amountCents} is above the ${rule.amountCents} approval threshold`;
-  }
-  return "approval required";
 }
 
 async function execute<T>(
@@ -307,9 +369,10 @@ async function execute<T>(
 
       const ctx: CapabilityContext = {
         principal,
-        data: createDataSource(client, invocationId),
+        data: createDataSource(client, invocationId, capability.name),
         now: new Date(),
         invocationId,
+        approvalId,
       };
       const result = (await capability.handler(input as never, ctx)) as T;
 
@@ -348,7 +411,14 @@ async function execute<T>(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const outcome: Outcome = error instanceof InvariantViolationError ? "invariant_violation" : "error";
+    // A stale revision or a case someone else owns is a refusal the caller can act on,
+    // not a platform failure; it is audited either way.
+    const outcome: Outcome =
+      error instanceof InvariantViolationError
+        ? "invariant_violation"
+        : error instanceof StaleRevisionError
+          ? "conflict"
+          : "error";
     // The rollback took the audit row with it, so the failure is recorded again
     // outside the transaction, under the same invocation id. A refused effect is
     // as visible, and as traceable, as an accepted one.
@@ -394,6 +464,8 @@ export interface ApprovalRow {
   reason: string;
   requestedBy: string;
   requestedByName: string;
+  /** The scope the decider must hold, fixed when the request was raised. */
+  approverScope: string;
   status: string;
   decidedBy: string | null;
   decidedAt: string | null;
@@ -418,6 +490,7 @@ export async function listApprovals(status?: string): Promise<ApprovalRow[]> {
       reason: row.reason,
       requestedBy: row.requested_by,
       requestedByName: row.requested_by_name,
+      approverScope: row.approver_scope,
       status: row.status,
       decidedBy: row.decided_by,
       decidedAt: row.decided_at ? row.decided_at.toISOString() : null,
@@ -474,11 +547,10 @@ export async function decideApproval(decision: ApprovalDecision): Promise<Invoke
   // `approvals:decide` says you may decide approvals; the capability's own approverScope says
   // which ones. Without this, holding the generic scope would let anyone clear the highest-risk
   // action in the registry.
-  const held = getCapability(record.capability);
-  if (held?.kind === "write" && !approver.scopes.includes(held.policy.approverScope)) {
+  if (!approver.scopes.includes(record.approver_scope)) {
     return auditDecision(
       "denied_scope",
-      `deciding ${record.capability} needs ${held.policy.approverScope}, which ${approver.role} does not hold`,
+      `deciding ${record.capability} needs ${record.approver_scope}, which ${approver.role} does not hold`,
     );
   }
 

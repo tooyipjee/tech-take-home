@@ -17,7 +17,7 @@ export default function App() {
 }
 
 function Shell() {
-  const { actor, directory, setActorId, adapter } = usePlatform();
+  const { actor, directory, setActorId } = usePlatform();
   const [tab, setTab] = useState<Tab>('queue');
   const [caseId, setCaseId] = useState<string | null>(null);
 
@@ -55,7 +55,6 @@ function Shell() {
           ))}
         </nav>
         <div className="identity">
-          <span className={`pill pill--adapter-${adapter}`}>{adapter} kernel</span>
           <label>
             Acting as
             <select value={actor.id} onChange={(event) => setActorId(event.target.value)}>

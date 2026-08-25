@@ -1,6 +1,6 @@
 import type { PgClient } from "@platform/db";
 import { listCapabilities } from "./registry.ts";
-import type { EffectDeclaration, WriteCapability } from "./types.ts";
+import type { EffectDeclaration, WriteCapability, WritePolicy } from "./types.ts";
 
 /**
  * An invariant is a statement about the data that must be true at all times.
@@ -56,11 +56,53 @@ const perHour = (capability: string) => declared(capability, "(policy->'limits'-
 const approvalThreshold = (capability: string) =>
   declared(capability, "(policy->'approval'->>'amountCents')::bigint");
 
-const liveRows = (effect: EffectDeclaration) =>
-  effect.live ? `e.${effect.live.column} = '${effect.live.equals}'` : "true";
+/**
+ * Effect tables are shared: several capabilities append to `kyc_case_events`. Every
+ * generated query is scoped to the capability that wrote the row, so one capability's
+ * invariant never judges another's effects.
+ */
+const liveRows = (capability: string, effect: EffectDeclaration) =>
+  [
+    `e.capability = '${capability}'`,
+    effect.live ? `e.${effect.live.column} = '${effect.live.equals}'` : null,
+  ]
+    .filter((clause): clause is string => clause !== null)
+    .join(" and ");
+
+/**
+ * The approver scope a subject row requires, as a SQL expression over `s`: the same
+ * clauses the runtime evaluates before holding the call, in the same order.
+ */
+const requiredApproverScope = (policy: WritePolicy): string | null => {
+  if (policy.approval.mode === "never") return null;
+  if (policy.approval.mode === "derived_from_subject") {
+    const clauses = policy.approval.clauses
+      .map((clause) => `when (${clause.when}) then '${clause.approverScope}'`)
+      .join("\n               ");
+    return `case ${clauses} else null end`;
+  }
+  return `'${policy.approverScope}'`;
+};
 
 /** Properties of the platform, independent of any capability that uses it. */
 const AXIOMS: Invariant[] = [
+  {
+    id: "approvals.decided_by_a_holder_of_the_required_scope",
+    statement:
+      "Every decided approval was decided by someone whose role holds the scope the approval recorded.",
+    derivedFrom: "axiom: the scope an approval demands is the scope its decider must hold",
+    query: `
+      select ap.id as subject,
+             'decided by ' || ap.decided_by || ' (' || u.role || '), who does not hold '
+               || ap.approver_scope as detail
+        from approvals ap
+        join platform_users u on u.id = ap.decided_by
+       where ap.decided_by is not null
+         and not exists (select 1 from role_scopes rs
+                          where rs.role = u.role and rs.scope = ap.approver_scope)`,
+    halts: [],
+    postconditionFor: [],
+  },
   {
     id: "approvals.decided_by_a_second_person",
     statement: "No approval was decided by the person who requested it.",
@@ -79,8 +121,8 @@ function deriveInvariants(capability: WriteCapability): Invariant[] {
   const effect = policy.effect;
   if (!effect) return [];
 
-  const live = liveRows(effect);
-  const amount = `e.${effect.amountColumn}`;
+  const live = liveRows(name, effect);
+  const amount = effect.amountColumn ? `e.${effect.amountColumn}` : null;
   const guards = { halts: [name], postconditionFor: [name] };
   const invariants: Invariant[] = [];
 
@@ -88,24 +130,42 @@ function deriveInvariants(capability: WriteCapability): Invariant[] {
   // doing, and moved exactly the amount that invocation recorded.
   invariants.push({
     id: `${name}.effects_are_attributed`,
-    statement: `Every row in ${effect.table} was written by one audited ${name} invocation that recorded the same amount.`,
+    statement: amount
+      ? `Every ${name} row in ${effect.table} was written by one audited invocation that recorded the same amount.`
+      : `Every ${name} row in ${effect.table} was written by one audited invocation.`,
     derivedFrom: "axiom: an effect nobody audited did not legitimately happen",
     query: `
       select e.id::text as subject,
              case
                when a.id is null
                  then 'no ok audit of ${name} for invocation ' || coalesce(e.invocation_id::text, '(none)')
-               else 'audited ' || coalesce(a.amount_cents, -1) || ' but moved ' || ${amount}
+               else ${amount ? `'audited ' || coalesce(a.amount_cents, -1) || ' but moved ' || ${amount}` : `'audited more than once'`}
              end as detail
         from ${effect.table} e
         left join audit_log a
           on a.invocation_id = e.invocation_id and a.outcome = 'ok' and a.capability = '${name}'
        where ${live}
-         and (a.id is null or a.amount_cents is distinct from ${amount})`,
+         and (a.id is null${amount ? ` or a.amount_cents is distinct from ${amount}` : ""})`,
     ...guards,
   });
 
-  if (effect.conserves) {
+  if (effect.oncePerSubject) {
+    invariants.push({
+      id: `${name}.happens_at_most_once_per_subject`,
+      statement: `No ${effect.subjectColumn} has more than one ${name} effect in ${effect.table}.`,
+      derivedFrom: "policy.effect.oncePerSubject",
+      query: `
+        select e.${effect.subjectColumn}::text as subject,
+               'has ' || count(*) || ' ${name} effects' as detail
+          from ${effect.table} e
+         where ${live}
+         group by e.${effect.subjectColumn}
+        having count(*) > 1`,
+      ...guards,
+    });
+  }
+
+  if (effect.conserves && amount) {
     const pool = effect.conserves;
     invariants.push({
       id: `${name}.conserves_${pool.table}`,
@@ -122,7 +182,7 @@ function deriveInvariants(capability: WriteCapability): Invariant[] {
     });
   }
 
-  if (policy.limits.maxAmountCents !== null) {
+  if (policy.limits.maxAmountCents !== null && amount) {
     invariants.push({
       id: `${name}.respects_declared_ceiling`,
       statement: `No ${effect.table} row exceeds the per-invocation ceiling ${name} declares.`,
@@ -138,35 +198,51 @@ function deriveInvariants(capability: WriteCapability): Invariant[] {
     });
   }
 
-  if (policy.approval.mode !== "never") {
+  const required = requiredApproverScope(policy);
+  if (required) {
+    // Which effects needed an approval, and which scope it had to carry. For a
+    // data-derived rule this is a question about the subject row, so the subject is
+    // joined in and the declared clauses are asked of it — the same clauses, in the
+    // same order, that the runtime asked before letting the write through.
+    const subjectJoin =
+      policy.approval.mode === "derived_from_subject" && policy.subject
+        ? `join ${policy.subject.table} s on s.id = e.${effect.subjectColumn}`
+        : "";
+    const amountMatches = amount ? ` or ap.amount_cents is distinct from ${amount}` : "";
     const aboveThreshold =
-      policy.approval.mode === "above_amount"
+      policy.approval.mode === "above_amount" && amount
         ? `and ${approvalThreshold(name)} is not null and ${amount} > ${approvalThreshold(name)}`
         : "";
     invariants.push({
       id: `${name}.carries_the_declared_approval`,
       statement:
-        policy.approval.mode === "above_amount"
-          ? `Every ${effect.table} row above the threshold ${name} declares was granted by a second person for that same amount.`
-          : `Every ${effect.table} row was granted by a second person for that same amount.`,
+        policy.approval.mode === "derived_from_subject"
+          ? `Every ${effect.table} row whose subject required approval carries one, decided by a second person holding the scope that subject demanded.`
+          : policy.approval.mode === "above_amount"
+            ? `Every ${effect.table} row above the threshold ${name} declares was granted by a second person for that same amount.`
+            : `Every ${effect.table} row was granted by a second person holding ${policy.approverScope}.`,
       derivedFrom: `policy.approval.mode = ${policy.approval.mode}`,
       query: `
         select e.id::text as subject,
                case
-                 when ap.id is null then 'no approval for a ' || ${amount} || ' effect that required one'
+                 when ap.id is null then 'no approval for an effect that required ' || (${required})
                  when ap.decided_by is null then 'approval ' || ap.id || ' was never decided'
                  when ap.decided_by = ap.requested_by then 'approval ' || ap.id || ' was self-granted'
-                 else 'approval ' || ap.id || ' was granted for ' || coalesce(ap.amount_cents, -1)
+                 when ap.approver_scope is distinct from (${required})
+                   then 'approval ' || ap.id || ' carried ' || ap.approver_scope || ' but ' || (${required}) || ' was required'
+                 else 'approval ' || ap.id || ' does not match the effect'
                end as detail
           from ${effect.table} e
+          ${subjectJoin}
           left join audit_log a on a.invocation_id = e.invocation_id
           left join approvals ap on ap.id = a.approval_id
          where ${live}
+           and (${required}) is not null
            ${aboveThreshold}
            and (ap.id is null
                 or ap.decided_by is null
                 or ap.decided_by = ap.requested_by
-                or ap.amount_cents is distinct from ${amount})`,
+                or ap.approver_scope is distinct from (${required})${amountMatches})`,
       ...guards,
     });
   }

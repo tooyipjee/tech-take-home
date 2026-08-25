@@ -24,10 +24,23 @@ create table if not exists approvals (
   reason          text not null,
   requested_by    text not null references platform_users(id),
   status          text not null check (status in ('pending', 'approved', 'rejected', 'executed', 'failed')),
+  -- The scope the decider must hold, resolved from the capability's declaration (and,
+  -- for a data-derived rule, from the record) at the moment the request was raised.
+  -- Stored rather than re-derived so the approval is judged by the rule in force then.
+  approver_scope  text not null,
   decided_by      text references platform_users(id),
   decided_at      timestamptz,
   idempotency_key text not null,
   created_at      timestamptz not null default now()
+);
+
+-- Role → scope, written from the kernel's own map at boot. It is here so that an
+-- invariant can ask in SQL whether the person who decided an approval actually held
+-- the scope it required, instead of trusting that the runtime checked.
+create table if not exists role_scopes (
+  role  text not null,
+  scope text not null,
+  primary key (role, scope)
 );
 
 create table if not exists idempotency_keys (

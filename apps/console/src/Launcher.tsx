@@ -5,20 +5,6 @@
  */
 const APPS = [
   {
-    name: "Refunds",
-    folder: "apps/refunds",
-    url: "http://localhost:5175",
-    scopes: ["refunds:read", "refunds:write"],
-    blurb: "Issue refunds against captured payments, under the declared ceiling and approval rule.",
-  },
-  {
-    name: "Customer review queue",
-    folder: "apps/review-queue",
-    url: "http://localhost:5176",
-    scopes: ["queue:read", "queue:write"],
-    blurb: "Work the open review items. No money moves, so no ceiling — still scoped and audited.",
-  },
-  {
     name: "KYC review queue",
     folder: "apps/kyc-review",
     url: "http://localhost:5174",

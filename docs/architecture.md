@@ -5,8 +5,9 @@
 Apps are generated. Review is the only human gate, and review is fallible. So the properties
 that must never fail are not properties of app code — they are properties of the runtime.
 
-Concretely: an application can express *what* it wants (`refunds.issue`, `$600`, this payment).
-It cannot express *whether it is allowed*, *how much is too much*, *who must approve*, or
+Concretely: an application can express *what* it wants (`kyc.case.approve`, this case, at this
+revision).
+It cannot express *whether it is allowed*, *how often it may happen*, *who must approve*, or
 *whether to write an audit record*. Those are decided by the runtime from a declaration attached
 to the capability, and there is no code path that skips them.
 
@@ -69,11 +70,11 @@ The set is **derived, not curated**. Two sources:
 - **Declarations** — every write capability declares its policy (`maxAmountCents`, `approval`,
   `maxPerHour`, `idempotent`) and its `effect`: which table the row lands in, which column holds
   the amount moved, which rows count as live, and which finite pool it draws down. Each field
-  generates the SQL that proves the committed data obeys it, so `refunds.issue` gets
-  `conserves_payments`, `respects_declared_ceiling`, `carries_the_declared_approval`,
-  `respects_declared_rate`, `is_idempotent` and `effects_are_attributed` without anyone writing
-  a rule. A capability that moves money and declares no effect does not register
-  (`PolicyDeclarationError`) — there would be nothing to prove.
+  generates the SQL that proves the committed data obeys it, so `kyc.case.approve` gets
+  `carries_the_declared_approval`, `respects_declared_rate`, `is_idempotent`,
+  `effects_are_attributed` and `happens_at_most_once_per_subject` without anyone writing a rule.
+  A write capability that declares no effect does not register (`PolicyDeclarationError`) —
+  there would be nothing to prove.
 
 That is what stops the set being arbitrary: a rule exists because a declaration says something,
 and changing the declaration changes the rule in the same commit.
@@ -91,8 +92,8 @@ from the declaration a human approved rather than being a second copy that can d
 
 Every effect row carries the `invocation_id` of the audited invocation that produced it. The
 `DataSource` stamps it, not the handler, and a trigger plus a foreign key to `audit_log` make an
-unattributable effect unrepresentable — the property the reconciler's "is this refund real?"
-question depends on.
+unattributable effect unrepresentable — the property the reconciler's "did anyone actually decide
+this?" question depends on.
 
 On a violation the platform halts the capabilities the invariant names: writes return `halted`,
 reads and everything else keep serving, and only `invariants:clear` (admin) resumes it, once every
@@ -102,26 +103,43 @@ invariant guarding it passes again. See [ADR 0006](adr/0006-invariants-are-enfor
 
 `decideApproval()` is the only place an approval grant can be minted, and an HTTP caller cannot
 supply one. On approval the runtime **replays the original request as the original requester** —
-the refund is attributed to the agent who asked for it, not the supervisor who allowed it — and
-the decision is itself an audited action. A requester may never approve their own request.
+the decision on a case is attributed to the reviewer who asked for it, not the officer who
+allowed it — and the approval is itself an audited action. A requester may never approve their own
+request.
+
+The scope an approver must hold is fixed **when the request is raised** and stored on the row, so a
+later edit to the declaration cannot retroactively lower the bar on a request already waiting. For
+`derived_from_subject` the requirement is asked of the case in SQL, from the declared clauses:
+`kyc.case.approve` on a case with an unresolved OFAC hit demands `kyc:sar`, on a merely high-risk
+case demands a second `kyc:decide`, and on a clean low-risk case demands nobody. `kyc.cases.get`
+returns the same answer to the app so a reviewer can be warned before acting, without the app
+holding a copy of the rule.
 
 ## What a policy declaration looks like
 
 ```ts
 policy: {
-  scope: "refunds:write",
+  scope: "kyc:decide",
   idempotent: true,
-  limits: { maxAmountCents: 200_000, maxPerHour: 10 },
-  approval: { mode: "above_amount", amountCents: 50_000 },
-  approverScope: "approvals:decide",
-  amountField: "amountCents",
+  limits: { maxAmountCents: null, maxPerHour: 50 },
+  subject: { table: "kyc_cases", idField: "caseId" },
+  approval: {
+    mode: "derived_from_subject",
+    clauses: [
+      { when: "…unresolved OFAC/EU/UK hit…", approverScope: "kyc:sar", because: "…" },
+      { when: "s.risk_band = 'high' or …any unresolved hit…", approverScope: "kyc:decide", because: "…" },
+    ],
+  },
+  approverScope: "kyc:decide",
+  effect: { table: "kyc_case_decisions", subjectColumn: "case_id", oncePerSubject: true },
 }
 ```
 
 That block is the review artifact. Reviewing *"is this handler correct?"* is hard and subjective;
-reviewing *"should an agent be able to move up to $2,000, ten times an hour, unattended up to
-$500?"* is a question a risk owner can answer in seconds. Malformed declarations fail at boot,
-not at the first refund: a ceiling with no `amountField` refuses to register.
+reviewing *"should a compliance officer be able to onboard a clean low-risk applicant alone, but
+never one with an unresolved sanctions hit?"* is a question a risk owner can answer in seconds.
+Malformed declarations fail at boot, not at the first case: a ceiling with no `amountField`, or a
+write with no `effect`, refuses to register.
 
 ## Identity
 
@@ -133,7 +151,8 @@ never roles, so adding a role never touches capability code.
 
 One database, two concerns, deliberately: platform state (`platform_users`,
 `capability_registry`, `approvals`, `idempotency_keys`, `audit_log`) and business data
-(`customers`, `payments`, `refunds`, `feature_flags`, `review_queue_items`), plus the
+(`kyc_cases` and its documents, screening hits and risk signals, plus the effect tables
+`kyc_case_decisions`, `kyc_pii_disclosures`, `kyc_sars` and `kyc_case_events`), plus the
 reconciliation record (`invariant_runs`, `capability_halts`). They share a
 database so that an effect and its audit record commit atomically — the property that makes the
 audit log trustworthy. See [ADR 0004](adr/0004-postgres-as-system-of-record.md) for the cost of

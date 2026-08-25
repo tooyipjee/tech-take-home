@@ -1,5 +1,6 @@
 import { usePlatform, usePlatformData } from '../platform/PlatformProvider';
 import type { KycApproval } from '../platform/contracts';
+import { approvalCaseId } from '../platform/contracts';
 import { Empty, Section, relativeTime } from '../components/ui';
 
 /**
@@ -35,7 +36,7 @@ export function ApprovalsView({ onOpen }: { onOpen: (caseId: string) => void }) 
             {decided.map((request) => (
               <li key={request.id}>
                 <div className="row">
-                  <strong>{request.summary}</strong>
+                  <strong>{request.reason}</strong>
                   <span className="spacer" />
                   <span className={request.status === 'rejected' || request.status === 'failed' ? 'hits' : 'muted'}>
                     {request.status}
@@ -56,6 +57,7 @@ export function ApprovalsView({ onOpen }: { onOpen: (caseId: string) => void }) 
 
 function ApprovalRow({ request, onOpen }: { request: KycApproval; onOpen: (caseId: string) => void }) {
   const { client, actor, bump } = usePlatform();
+  const caseId = approvalCaseId(request);
   const isRequester = request.requestedBy === actor.id;
   const canDecide = actor.scopes.includes(request.approverScope) && actor.scopes.includes('approvals:decide');
 
@@ -67,18 +69,19 @@ function ApprovalRow({ request, onOpen }: { request: KycApproval; onOpen: (caseI
   return (
     <li>
       <div className="row">
-        <strong>{request.summary}</strong>
+        <strong>{request.reason}</strong>
         <span className="spacer" />
         <span className="pill pill--awaiting_approval">needs {request.approverScope}</span>
       </div>
       <p className="muted">
-        <button type="button" className="linkish" onClick={() => onOpen(request.caseId)}>
-          {request.caseReference}
-        </button>{' '}
+        {caseId ? (
+          <button type="button" className="linkish" onClick={() => onOpen(caseId)}>
+            {caseId}
+          </button>
+        ) : null}{' '}
         · <code>{request.capability}</code> · requested by {request.requestedByName}{' '}
         {relativeTime(request.createdAt)}
       </p>
-      <blockquote>{request.reason}</blockquote>
       {isRequester ? (
         <p className="banner banner--denied">
           You raised this request. Four-eyes means someone else must decide it — the runtime will deny you.

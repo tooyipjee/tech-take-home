@@ -96,6 +96,8 @@ export interface ApprovalSummary {
   reason: string;
   requestedBy: string;
   requestedByName: string;
+  /** The scope the decider must hold, fixed when the request was raised. */
+  approverScope: string;
   status: string;
   decidedBy: string | null;
   decidedAt: string | null;

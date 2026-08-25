@@ -110,16 +110,26 @@ export interface CaseDetail extends CaseSummary {
 }
 
 /**
- * A platform approval with the case context this app needs to render it. The platform fields
- * (`requestedBy`, `status`, `createdAt`) keep the names the SDK uses so the same inbox works
- * against `platform.approvals()`.
+ * What the runtime says it would demand of a decision on this case, returned by
+ * `kyc.cases.get`. The app never derives this itself: a second copy of the rule in the UI
+ * would be free to disagree with the one being enforced.
+ */
+export interface ApprovalRequirement {
+  approverScope: string;
+  reason: string;
+}
+
+/**
+ * A platform approval, rendered with the case it concerns. Everything here is the platform's
+ * own shape — the app only knows that `input.caseId` is a KYC case.
  */
 export interface KycApproval extends ApprovalSummary {
-  approverScope: ApproverScope;
-  caseId: string;
-  caseReference: string;
-  applicantName: string;
-  summary: string;
+  input: { caseId?: string };
+}
+
+/** The case an approval concerns, or null if it was raised by something that is not case-shaped. */
+export function approvalCaseId(approval: KycApproval): string | null {
+  return typeof approval.input.caseId === 'string' ? approval.input.caseId : null;
 }
 
 export interface CapabilityMap {
@@ -134,7 +144,7 @@ export interface CapabilityMap {
   };
   'kyc.cases.get': {
     input: { caseId: string };
-    output: { case: CaseDetail };
+    output: { case: CaseDetail; decisionApproval: ApprovalRequirement | null };
   };
   'kyc.case.pii.reveal': {
     input: { caseId: string; justification: string };
@@ -172,140 +182,75 @@ export type CapabilityInput<N extends CapabilityName> = CapabilityMap[N]['input'
 export type CapabilityOutput<N extends CapabilityName> = CapabilityMap[N]['output'];
 
 /**
- * The registry entries these capabilities are declared with, in the kernel's own policy shape:
- * reads carry a row ceiling, writes carry an idempotency requirement, a per-hour ceiling, an
- * approval rule and the scope an approver must hold. `platform.capabilities()` returns exactly
- * this for the deployed registry; the app renders it so a reviewer sees the rule, not just a button.
+ * The registry, as the platform serves it. The app holds no copy of the policy: it asks
+ * `platform.capabilities()` and renders what comes back, so what a reviewer reads on screen is
+ * the declaration the runtime is enforcing rather than a second version of it that can drift.
  */
-export type KycReadPolicy = {
-  scope: Scope;
-  maxRows: number;
-};
+export type KycCapabilityDescriptor = CapabilityDescriptor & { name: CapabilityName };
 
-export type KycWritePolicy = {
-  scope: Scope;
-  idempotent: true;
-  limits: { maxAmountCents: null; maxPerHour: number };
-  approval: { mode: 'never' } | { mode: 'always' };
-  approverScope: string;
-  /**
-   * KYC's approval requirement depends on the case, not on the input: an unresolved sanctions hit
-   * needs a compliance officer, high risk needs a lead, a clean low-risk case needs nobody. The
-   * kernel's ApprovalRule cannot express that yet, so this describes what the KYC runtime derives
-   * on top of `approval.mode`. Closing that gap is the one framework change this app still needs.
-   */
-  derivedApproval?: string;
-};
+export type CapabilityRegistry = Partial<Record<CapabilityName, KycCapabilityDescriptor>>;
 
-export interface KycCapabilityDescriptor extends CapabilityDescriptor {
-  name: CapabilityName;
-  policy: KycReadPolicy | KycWritePolicy;
+/** The capability names this app calls. The policy behind each one is the platform's to state. */
+export const CAPABILITY_NAMES: CapabilityName[] = [
+  'kyc.cases.list',
+  'kyc.cases.get',
+  'kyc.case.pii.reveal',
+  'kyc.case.claim',
+  'kyc.case.requestInfo',
+  'kyc.case.escalate',
+  'kyc.case.approve',
+  'kyc.case.reject',
+  'kyc.case.sar.file',
+];
+
+const isCapabilityName = (name: string): name is CapabilityName =>
+  (CAPABILITY_NAMES as string[]).includes(name);
+
+/** Index the served registry by name, ignoring capabilities this app does not call. */
+export function toRegistry(descriptors: CapabilityDescriptor[]): CapabilityRegistry {
+  const registry: CapabilityRegistry = {};
+  for (const descriptor of descriptors) {
+    if (isCapabilityName(descriptor.name)) {
+      registry[descriptor.name] = { ...descriptor, name: descriptor.name };
+    }
+  }
+  return registry;
 }
 
-export const CAPABILITY_DESCRIPTORS: Record<CapabilityName, KycCapabilityDescriptor> = {
-  'kyc.cases.list': {
-    name: 'kyc.cases.list',
-    kind: 'read',
-    summary: 'List queue cases with masked identifiers.',
-    policy: { scope: 'kyc:read', maxRows: 100 },
-  },
-  'kyc.cases.get': {
-    name: 'kyc.cases.get',
-    kind: 'read',
-    summary: 'Read one case, its documents, screening hits and timeline.',
-    policy: { scope: 'kyc:read', maxRows: 1 },
-  },
-  'kyc.case.pii.reveal': {
-    name: 'kyc.case.pii.reveal',
-    kind: 'write',
-    summary: 'Unmask applicant identifiers. Requires a justification and is audited on its own.',
-    // A disclosure is an effect: it is a write so that the runtime rate-limits and records it,
-    // because the kernel only meters writes.
-    policy: {
-      scope: 'kyc:pii',
-      idempotent: true,
-      limits: { maxAmountCents: null, maxPerHour: 20 },
-      approval: { mode: 'never' },
-      approverScope: 'kyc:decide',
-    },
-  },
-  'kyc.case.claim': {
-    name: 'kyc.case.claim',
-    kind: 'write',
-    summary: 'Take ownership of a case so two reviewers cannot work it at once.',
-    policy: {
-      scope: 'kyc:review',
-      idempotent: true,
-      limits: { maxAmountCents: null, maxPerHour: 120 },
-      approval: { mode: 'never' },
-      approverScope: 'kyc:decide',
-    },
-  },
-  'kyc.case.requestInfo': {
-    name: 'kyc.case.requestInfo',
-    kind: 'write',
-    summary: 'Ask the applicant for additional documents or clarification.',
-    policy: {
-      scope: 'kyc:review',
-      idempotent: true,
-      limits: { maxAmountCents: null, maxPerHour: 60 },
-      approval: { mode: 'never' },
-      approverScope: 'kyc:decide',
-    },
-  },
-  'kyc.case.escalate': {
-    name: 'kyc.case.escalate',
-    kind: 'write',
-    summary: 'Move the case to the enhanced due diligence queue.',
-    policy: {
-      scope: 'kyc:review',
-      idempotent: true,
-      limits: { maxAmountCents: null, maxPerHour: 20 },
-      approval: { mode: 'never' },
-      approverScope: 'kyc:decide',
-    },
-  },
-  'kyc.case.approve': {
-    name: 'kyc.case.approve',
-    kind: 'write',
-    summary: 'Onboard the applicant.',
-    policy: {
-      scope: 'kyc:decide',
-      idempotent: true,
-      limits: { maxAmountCents: null, maxPerHour: 50 },
-      approval: { mode: 'never' },
-      approverScope: 'kyc:decide',
-      derivedApproval:
-        'kyc:sar when an unresolved sanctions hit is present, kyc:decide when the case is high risk or has any unresolved hit',
-    },
-  },
-  'kyc.case.reject': {
-    name: 'kyc.case.reject',
-    kind: 'write',
-    summary: 'Decline the applicant with a reason code.',
-    policy: {
-      scope: 'kyc:decide',
-      idempotent: true,
-      limits: { maxAmountCents: null, maxPerHour: 50 },
-      approval: { mode: 'never' },
-      approverScope: 'kyc:decide',
-      derivedApproval:
-        'kyc:sar when an unresolved sanctions hit is present, kyc:decide when the case is high risk or has any unresolved hit',
-    },
-  },
-  'kyc.case.sar.file': {
-    name: 'kyc.case.sar.file',
-    kind: 'write',
-    summary: 'File a suspicious activity report. Irreversible.',
-    policy: {
-      scope: 'kyc:sar',
-      idempotent: true,
-      limits: { maxAmountCents: null, maxPerHour: 5 },
-      approval: { mode: 'always' },
-      approverScope: 'kyc:sar',
-    },
-  },
+const numberField = (policy: Record<string, unknown>, key: string): number | null => {
+  const value = policy[key];
+  return typeof value === 'number' ? value : null;
 };
+
+const stringField = (policy: Record<string, unknown>, key: string): string | null => {
+  const value = policy[key];
+  return typeof value === 'string' ? value : null;
+};
+
+/** The scope the runtime will demand for this capability, read off the served declaration. */
+export function scopeOf(descriptor: KycCapabilityDescriptor): string {
+  return stringField(descriptor.policy, 'scope') ?? 'unknown';
+}
+
+/** One line of the declared policy, for display next to the button it governs. */
+export function describePolicy(descriptor: KycCapabilityDescriptor): string {
+  const policy = descriptor.policy;
+  const scope = scopeOf(descriptor);
+  if (descriptor.kind === 'read') {
+    return `${scope} · read · ≤${numberField(policy, 'maxRows') ?? '?'} rows`;
+  }
+  const limits = policy.limits;
+  const perHour =
+    limits && typeof limits === 'object' ? numberField(limits as Record<string, unknown>, 'maxPerHour') : null;
+  const approval = policy.approval;
+  const mode =
+    approval && typeof approval === 'object'
+      ? (stringField(approval as Record<string, unknown>, 'mode') ?? 'never')
+      : 'never';
+  const approvalText =
+    mode === 'derived_from_subject' ? 'approval: depends on the case' : `approval: ${mode}`;
+  return `${scope} · write · ${perHour ?? '?'}/hour · ${approvalText}`;
+}
 
 export const REJECT_REASONS: { code: RejectReasonCode; label: string }[] = [
   { code: 'document_forgery', label: 'Document appears forged' },
