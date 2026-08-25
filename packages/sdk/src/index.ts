@@ -12,6 +12,8 @@ export type Outcome =
   | "rate_limited"
   | "invalid_input"
   | "not_found"
+  /** The record moved under the caller, or already says what they asked for; nothing was written. */
+  | "conflict"
   /** An invariant guarding this capability is violated; it is refusing writes. */
   | "halted"
   /** The effect would have broken a platform invariant and was rolled back. */

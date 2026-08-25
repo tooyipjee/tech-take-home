@@ -1,0 +1,9 @@
+{
+  "id": "feature-flags",
+  "name": "Feature flags",
+  "description": "Turn product features on and off without a deploy. Anything touching money needs a second administrator.",
+  "folder": "apps/feature-flags",
+  "url": "http://localhost:5178",
+  "scopes": ["flags:read", "flags:write", "approvals:read", "approvals:decide"],
+  "requiredScopes": ["flags:read"]
+}

@@ -247,6 +247,56 @@ function deriveInvariants(capability: WriteCapability): Invariant[] {
     });
   }
 
+  if (effect.tracksState && policy.subject) {
+    const tracked = effect.tracksState;
+    const subject = policy.subject;
+    // The effect table is the account of how the state got where it is, so two things
+    // must hold of it: the row agrees with the last change recorded against it, and the
+    // changes join up. A state moved by hand fails the first; moved by hand and moved
+    // back fails the second, because the next recorded change starts from a state the
+    // previous one did not leave.
+    invariants.push({
+      id: `${name}.state_matches_the_last_recorded_change`,
+      statement: `Every ${subject.table}.${tracked.column} is the value the last ${name} change recorded for it.`,
+      derivedFrom: `policy.effect.tracksState: ${effect.table}.${tracked.toColumn} is the authority for ${subject.table}.${tracked.column}`,
+      // The join is inner on purpose: a subject with no recorded change has no
+      // recorded state to be judged against, and inventing one would mean this
+      // invariant asserting what the seed happened to say. The database trigger is
+      // what covers that case — it refuses any state change with no matching row,
+      // including the first.
+      query: `
+        select s.id::text as subject,
+               'is ' || s.${tracked.column} || ' but the last recorded change left it '
+                 || last.${tracked.toColumn} as detail
+          from ${subject.table} s
+          join lateral (select e.${tracked.toColumn}
+                          from ${effect.table} e
+                         where e.${effect.subjectColumn} = s.id and ${live}
+                         order by e.at desc, e.id desc
+                         limit 1) last on true
+         where s.${tracked.column} is distinct from last.${tracked.toColumn}`,
+      ...guards,
+    });
+
+    invariants.push({
+      id: `${name}.records_every_state_change`,
+      statement: `No ${name} change starts from a value the change before it did not leave, so no ${subject.table}.${tracked.column} moved without being recorded.`,
+      derivedFrom: `policy.effect.tracksState: ${effect.table}.${tracked.fromColumn} continues the previous ${tracked.toColumn}`,
+      query: `
+        select changes.${effect.subjectColumn}::text as subject,
+               'a change recorded a move from ' || changes.${tracked.fromColumn}
+                 || ' after the previous one left it ' || changes.previous as detail
+          from (select e.${effect.subjectColumn}, e.${tracked.fromColumn},
+                       lag(e.${tracked.toColumn}) over (partition by e.${effect.subjectColumn}
+                                                        order by e.at, e.id) as previous
+                  from ${effect.table} e
+                 where ${live}) changes
+         where changes.previous is not null
+           and changes.${tracked.fromColumn} is distinct from changes.previous`,
+      ...guards,
+    });
+  }
+
   invariants.push({
     id: `${name}.respects_declared_rate`,
     statement: `No actor was accepted for ${name} more often in an hour than it declares.`,

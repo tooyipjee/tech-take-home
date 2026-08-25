@@ -41,6 +41,61 @@ test("declaring kyc.case.approve derives its whole rule set", () => {
   );
 });
 
+test("declaring flags.flip derives the rule set a flag needs", () => {
+  assert.deepEqual(
+    invariantsFor("flags.flip")
+      .map((invariant) => invariant.id)
+      .sort(),
+    [
+      "flags.flip.carries_the_declared_approval",
+      "flags.flip.effects_are_attributed",
+      "flags.flip.is_idempotent",
+      "flags.flip.records_every_state_change",
+      "flags.flip.respects_declared_rate",
+      "flags.flip.state_matches_the_last_recorded_change",
+    ],
+    "the derived set changing means a declaration changed; that is a tier-2 review",
+  );
+});
+
+test("a tracked state is proved against its history, from the declaration", () => {
+  const projection = getInvariant("flags.flip.state_matches_the_last_recorded_change");
+  // The flag row is a projection of its recorded flips: the proof compares the two
+  // rather than trusting whichever one a reader happens to look at.
+  assert.match(projection?.query ?? "", /from feature_flags s/);
+  assert.match(projection?.query ?? "", /from feature_flag_changes e/);
+  assert.match(projection?.query ?? "", /s\.enabled is distinct from last\.to_enabled/);
+
+  const chain = getInvariant("flags.flip.records_every_state_change");
+  assert.match(chain?.query ?? "", /lag\(e\.to_enabled\)/);
+  assert.match(chain?.query ?? "", /from_enabled is distinct from changes\.previous/);
+});
+
+test("a tracked state must name the row it is tracked on", () => {
+  assert.throws(
+    () =>
+      defineWrite({
+        name: "test.untracked",
+        summary: "tracks a state without saying whose",
+        input: z.object({ flagId: z.string() }),
+        policy: {
+          scope: "flags:write",
+          idempotent: true,
+          limits: { maxAmountCents: null, maxPerHour: 1 },
+          approval: { mode: "never" },
+          approverScope: "approvals:decide",
+          effect: {
+            table: "feature_flag_changes",
+            subjectColumn: "flag_id",
+            tracksState: { column: "enabled", fromColumn: "from_enabled", toColumn: "to_enabled" },
+          },
+        },
+        handler: async () => ({}),
+      }),
+    PolicyDeclarationError,
+  );
+});
+
 test("every write in the registry is guarded, and only writes are", () => {
   const guarded = new Map<string, string[]>();
   for (const invariant of invariants()) {
@@ -51,6 +106,7 @@ test("every write in the registry is guarded, and only writes are", () => {
   assert.deepEqual(
     [...guarded.keys()].sort(),
     [
+      "flags.flip",
       "kyc.case.approve",
       "kyc.case.claim",
       "kyc.case.escalate",

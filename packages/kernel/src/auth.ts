@@ -10,6 +10,9 @@ export const ROLE_SCOPES: Record<Role, string[]> = {
     "kyc:read",
     "kyc:pii",
     "kyc:review",
+    // Which features are on is not a secret from the people working under them, so
+    // every role can read the flags; only an admin holds the scope that moves one.
+    "flags:read",
     // Invariant health is readable by everyone: a halted capability must be
     // explainable to the person whose work just stopped.
     "invariants:read",
@@ -22,6 +25,7 @@ export const ROLE_SCOPES: Record<Role, string[]> = {
     "approvals:read",
     "approvals:decide",
     "audit:read",
+    "flags:read",
     "invariants:read",
   ],
   admin: [
@@ -33,6 +37,10 @@ export const ROLE_SCOPES: Record<Role, string[]> = {
     "approvals:read",
     "approvals:decide",
     "audit:read",
+    "flags:read",
+    // Turning a product feature on or off without a deploy. Two admins hold it, so a
+    // protected flag always has a second signature available and never a self-granted one.
+    "flags:write",
     "invariants:read",
     // Resuming a halted capability is an admin act, and only possible once the
     // invariant passes again.

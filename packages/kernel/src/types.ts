@@ -82,6 +82,25 @@ export interface EffectDeclaration {
    * a case is onboarded or declined once, a SAR is filed once.
    */
   oncePerSubject?: boolean;
+  /**
+   * For an effect that *moves* a field of its subject rather than accumulating
+   * beside it: which column on the subject holds the state, and which columns on the
+   * effect record what it moved from and to.
+   *
+   * Declaring it makes the effect table the authority and the subject row a
+   * projection of it, and derives the two statements that say so: the current state is
+   * the state the last recorded change left, and the recorded changes form an unbroken
+   * chain. Together they mean a state that moved without a recorded change is a
+   * violation, so the history cannot be a partial account of how the row got here.
+   */
+  tracksState?: {
+    /** Column on the subject table holding the state this effect moves. */
+    column: string;
+    /** Column on the effect table holding the state before the change. */
+    fromColumn: string;
+    /** Column on the effect table holding the state after it. */
+    toColumn: string;
+  };
 }
 
 export interface WritePolicy {

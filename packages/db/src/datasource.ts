@@ -76,6 +76,26 @@ export interface CaseDetail extends CaseSummary {
   expectedMonthlyVolumeUsd: number;
 }
 
+export interface FlagChange {
+  id: string;
+  at: string;
+  actor: string;
+  enabled: boolean;
+  note: string;
+}
+
+export interface FeatureFlag {
+  id: string;
+  key: string;
+  description: string;
+  enabled: boolean;
+  /** Gates payments, limits or a customer-facing money flow. */
+  protected: boolean;
+  revision: number;
+  /** Most recent flips first, so a screen can show how the flag got here. */
+  recentChanges: FlagChange[];
+}
+
 export interface CaseFilter {
   status?: CaseStatus | "all";
   riskBand?: RiskBand | "all";
@@ -140,6 +160,26 @@ export interface DataSource {
     actorId: string;
     enforceRevision: boolean;
   }): Promise<CaseDetail>;
+  listFeatureFlags(input: { limit: number; changesPerFlag: number }): Promise<FeatureFlag[]>;
+  /** Records the flip and moves the flag; the two are one transaction or neither happens. */
+  flipFeatureFlag(input: {
+    flagId: string;
+    revision: number;
+    enabled: boolean;
+    note: string;
+    actorId: string;
+    /** Set when this is the replay of an approved request; the revision was checked then. */
+    enforceRevision: boolean;
+  }): Promise<FeatureFlag>;
+}
+
+interface FlagRow {
+  id: string;
+  key: string;
+  description: string;
+  enabled: boolean;
+  protected: boolean;
+  revision: number;
 }
 
 interface CaseRow {
@@ -476,6 +516,91 @@ export function createDataSource(
         `${decision === "approved" ? "Approved" : "Rejected"}: ${note}`,
       );
       return detail(caseId);
+    },
+
+    async listFeatureFlags({ limit, changesPerFlag }) {
+      const { rows } = await client.query<FlagRow>(
+        "select * from feature_flags order by protected desc, key asc limit $1",
+        [limit],
+      );
+      // The recent history of a flag is the effect table read back: the flag row says
+      // what is true now, the change rows say who made it true and when.
+      const { rows: changes } = await client.query<{
+        id: string;
+        flag_id: string;
+        at: Date;
+        to_enabled: boolean;
+        note: string;
+        actor_name: string;
+      }>(
+        `select c.id, c.flag_id, c.at, c.to_enabled, c.note, u.name as actor_name
+           from feature_flag_changes c
+           join platform_users u on u.id = c.flipped_by
+          where c.flag_id = any($1::text[])
+          order by c.at desc, c.id desc`,
+        [rows.map((row) => row.id)],
+      );
+
+      return rows.map((row) => ({
+        id: row.id,
+        key: row.key,
+        description: row.description,
+        enabled: row.enabled,
+        protected: row.protected,
+        revision: row.revision,
+        recentChanges: changes
+          .filter((change) => change.flag_id === row.id)
+          .slice(0, changesPerFlag)
+          .map((change) => ({
+            id: change.id,
+            at: change.at.toISOString(),
+            actor: change.actor_name,
+            enabled: change.to_enabled,
+            note: change.note,
+          })),
+      }));
+    },
+
+    async flipFeatureFlag({ flagId, revision, enabled, note, actorId, enforceRevision }) {
+      const { rows } = await client.query<FlagRow>(
+        "select * from feature_flags where id = $1 for update",
+        [flagId],
+      );
+      const row = rows[0];
+      if (!row) throw new StaleRevisionError(`unknown feature flag: ${flagId}`);
+      if (enforceRevision && row.revision !== revision) {
+        throw new StaleRevisionError(
+          `${row.key} moved on (you saw r${revision}, current is r${row.revision}); reload before flipping`,
+        );
+      }
+      if (row.enabled === enabled) {
+        throw new StaleRevisionError(`${row.key} is already ${enabled ? "on" : "off"}`);
+      }
+
+      await client.query(
+        `insert into feature_flag_changes
+           (id, flag_id, from_enabled, to_enabled, note, flipped_by, invocation_id, capability)
+         values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          `flg_${invocationId.slice(0, 12)}`,
+          flagId,
+          row.enabled,
+          enabled,
+          note,
+          actorId,
+          invocationId,
+          capability,
+        ],
+      );
+      await client.query(
+        "update feature_flags set enabled = $2, revision = revision + 1 where id = $1",
+        [flagId, enabled],
+      );
+
+      const flags = await api.listFeatureFlags({ limit: 500, changesPerFlag: 5 });
+      const updated = flags.find((flag) => flag.id === flagId);
+      if (!updated) throw new StaleRevisionError(`unknown feature flag: ${flagId}`);
+      return updated;
     },
 
     async fileSar({ caseId, revision, narrative, actorId, enforceRevision }) {
