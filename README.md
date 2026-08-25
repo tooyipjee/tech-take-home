@@ -16,16 +16,39 @@ declaration; the app cannot bypass it, because the app never touches the databas
 Today the repository contains one domain, KYC, and two apps over it — the review queue and the SAR
 desk — and the whole platform is proved against them.
 
+```mermaid
+flowchart TB
+  subgraph apps["apps/ — written by Devin, untrusted"]
+    kyc["kyc-review<br/>review queue"]
+    sar["sar-desk<br/>file a SAR"]
+    next["the next app<br/>a folder + app.json"]
+  end
+
+  sdk["@rangka/sdk + @rangka/app-kit<br/>invoke(name, input, idempotencyKey)<br/>the only imports an app may use"]
+
+  subgraph platform["packages/ — the platform, human-reviewed"]
+    caps["capabilities<br/>declared policy + handler"]
+    kernel["kernel — the guard layer<br/>authorise → validate → limits → idempotency<br/>→ approval → execute → audit → prove invariants"]
+    data["db — DataSource<br/>the only code that speaks SQL"]
+  end
+
+  pg[("one Postgres<br/>platform state + business data<br/>constraints · triggers · append-only audit")]
+  recon["reconciler, every 15s<br/>re-proves every invariant<br/>over committed data"]
+
+  kyc --> sdk
+  sar --> sdk
+  next --> sdk
+  sdk -->|"HTTP, via apps/api"| kernel
+  kernel --> caps
+  caps --> data
+  data --> pg
+  pg --> recon
+  recon -.->|"halts only the capabilities<br/>a violated invariant names"| kernel
 ```
-apps/kyc-review          a screen, written by Devin
-                         invoke("kyc.case.approve", { caseId, revision, note })
-─────────────────────────────────────────────────────────  trust boundary
-packages/capabilities    capability = declared policy + handler, human-reviewed
-packages/kernel          runtime: scope → validate → rate → ceiling → approval
-                                  → execute → audit → invariants (or roll back)
-packages/db              Postgres: one database, append-only history,
-                                   constraints and triggers
-```
+
+There is deliberately no arrow from an app to the database. No app has a connection string, and
+every path to a row goes through the guard layer: `npm run lint` fails if an app imports the
+kernel, the data layer or a capability handler, or calls `fetch` itself.
 
 Everything the platform refuses — out of scope, unapproved, over the rate, replayed, stale — is
 refused in the same place, once.
@@ -75,7 +98,8 @@ judgement call at PR time.
 
 Devin writes the apps, so [the playbook](docs/devin/playbook.md) *is* the interface to this
 repository — and there is exactly one, because the person asking for a screen should not have to
-know which tier their request is. The playbook works that out and escalates itself:
+know which tier their request is. It is installed as a Devin playbook (`!rangka`) and works the
+tier out itself, escalating when it has to:
 
 1. **Triage.** Does an app already do this? Can an existing app be extended instead of adding a
    tile? If not, which tier is it? The verdict goes in the first message, before any code.
@@ -191,7 +215,8 @@ them, refusals included.
 | `packages/app-kit` | What an app gets besides the SDK: bound client, identity switcher, outcome banner, stylesheet |
 | `apps/api` | Fastify host: identity, invocation, approvals, audit, invariants |
 | `apps/console` | Platform surface: approvals, audit log, capability registry, invariants, app launcher |
-| `apps/kyc-review` | KYC review queue — the app |
+| `apps/kyc-review` | KYC review queue — reviewers work cases and decide them |
+| `apps/sar-desk` | SAR desk — files a suspicious activity report, countersigned by a second officer |
 
 `packages/*` is the platform: the trust boundary, the data layer, and the only surfaces an app may
 import (`@rangka/sdk`, `@rangka/app-kit`). `apps/*` is everything above it, one folder per
@@ -225,14 +250,16 @@ and the console's Vite watcher only re-globs `app.json` files on startup.
 ## Documentation
 
 - [Architecture](docs/architecture.md) — the trust boundary and the invocation pipeline in detail
-- [KYC review queue](docs/apps/kyc-review-queue.md) — the app, its capabilities and its policy
+- [KYC review queue](docs/apps/kyc-review-queue.md) — the first app, its capabilities and its policy
+- [SAR desk](apps/sar-desk/README.md) — the second app, built from verbs that already existed
 - [Authoring a capability](docs/authoring-a-capability.md) — the workflow humans and Devin share
 - [Decisions](docs/adr) — why it is built this way, and what was deliberately not built
 - [Playbook](docs/devin/playbook.md) ·
   [Two apps, two tiers](docs/devin/demo-two-apps.md)
-- [Platform changes](docs/platform-changes) — what each tier-2 change did to the guarantees
+- [Platform changes](docs/platform-changes.md) — what each tier-2 change did to the guarantees, in
+  order; history rather than current documentation
 
 ## Status
 
-One framework, one database, one app. KYC review is the product; everything under `packages/` is
-what makes the next app a prompt rather than a project.
+One framework, one database, one domain (KYC), two apps over it. The apps are the product;
+everything under `packages/` is what makes the next app a prompt rather than a project.

@@ -10,7 +10,7 @@ description: How to run and UI-test the kyc-review app (apps/kyc-review), which 
   a `kyc.*` capability call against the API, which needs Postgres. From the repo root:
   ```bash
   npm run setup     # Postgres in Docker, migrate, seed — required
-  npm run dev       # api :8080 · console :5173 · kyc :5174
+  npm run dev       # api :8080 · console :5173 · kyc :5174 · sar desk :5177
   ```
   `npx vite --config apps/kyc-review/vite.config.ts` alone will render "Connecting to the platform…" forever without the API.
 - Checks: `npm run -w @rangka/kyc-review lint` and `npm run -w @rangka/kyc-review build`.
