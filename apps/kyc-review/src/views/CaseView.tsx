@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useCapability, usePlatform } from '../platform/PlatformProvider';
 import type { CaseDetail, MaskedIdentity, RejectReasonCode } from '../platform/contracts';
-import { CAPABILITY_POLICIES, REJECT_REASONS } from '../platform/contracts';
+import { CAPABILITY_DESCRIPTORS, REJECT_REASONS } from '../platform/contracts';
 import { approvalReason } from '../platform/mock/kernel';
 import { Empty, PolicyChip, RiskPill, StatusPill, relativeTime } from '../components/ui';
 
@@ -23,7 +23,7 @@ function CaseDetailPanel({ detail, onBack }: { detail: CaseDetail; onBack: () =>
     invoke(
       'kyc.case.claim',
       { caseId: detail.id, revision: detail.revision },
-      { idempotencyKey: `claim:${detail.id}:${actor.userId}`, successMessage: 'Case claimed' },
+      { idempotencyKey: `claim:${detail.id}:${actor.id}`, successMessage: 'Case claimed' },
     );
 
   return (
@@ -39,7 +39,7 @@ function CaseDetailPanel({ detail, onBack }: { detail: CaseDetail; onBack: () =>
         <RiskPill band={detail.riskBand} score={detail.riskScore} />
         <span className="muted">revision r{detail.revision}</span>
         <span className="spacer" />
-        {detail.assignedTo === actor.userId ? (
+        {detail.assignedTo === actor.id ? (
           <span className="muted">Assigned to you</span>
         ) : (
           <button type="button" className="btn" onClick={claim}>
@@ -82,10 +82,15 @@ function IdentityCard({
     const result = await invoke(
       'kyc.case.pii.reveal',
       { caseId: detail.id, justification },
-      { successMessage: 'PII revealed (high-severity audit written)' },
+      {
+        // A fresh key per disclosure: two reveals are two disclosures, and replaying one would
+        // hide the second from the audit log.
+        idempotencyKey: `reveal:${detail.id}:${Date.now()}`,
+        successMessage: 'PII revealed (audited on its own)',
+      },
     );
-    if (result.status === 'ok') {
-      onReveal(result.output.identity);
+    if (result.outcome === 'ok' && result.result) {
+      onReveal(result.result.identity);
       setAsking(false);
       setJustification('');
     }
@@ -106,7 +111,7 @@ function IdentityCard({
 
       {asking && identity.masked && (
         <div className="reveal">
-          <p className="muted">{CAPABILITY_POLICIES['kyc.case.pii.reveal'].description}</p>
+          <p className="muted">{CAPABILITY_DESCRIPTORS['kyc.case.pii.reveal'].summary}</p>
           <textarea
             value={justification}
             placeholder="Why do you need the raw identifiers? (min 10 characters)"
@@ -239,7 +244,7 @@ function DecisionCard({ detail }: { detail: CaseDetail }) {
             ? 'kyc.case.escalate'
             : 'kyc.case.sar.file';
   const heldReason = approvalReason(capability, detail);
-  const holdsScope = actor.scopes.includes(CAPABILITY_POLICIES[capability].scope);
+  const holdsScope = actor.scopes.includes(CAPABILITY_DESCRIPTORS[capability].policy.scope);
 
   const submit = async () => {
     const base = { caseId: detail.id, revision: detail.revision };
@@ -304,7 +309,8 @@ function DecisionCard({ detail }: { detail: CaseDetail }) {
 
       {!holdsScope && (
         <p className="banner banner--denied">
-          Your role ({actor.role}) does not hold <code>{CAPABILITY_POLICIES[capability].scope}</code>. The runtime will
+          Your role ({actor.role}) does not hold <code>{CAPABILITY_DESCRIPTORS[capability].policy.scope}</code>. The
+          runtime will
           refuse this call — the button is left enabled deliberately, because hiding it is not a control.
         </p>
       )}

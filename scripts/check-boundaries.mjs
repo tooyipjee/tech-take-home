@@ -14,7 +14,7 @@ const FORBIDDEN_IN_APPS = [
   { pattern: /\bfetch\s*\(/, reason: "apps must invoke capabilities via the SDK, not raw fetch" },
 ];
 
-const APP_ROOTS = ["apps/console/src/apps"];
+const APP_ROOTS = ["apps/console/src/apps", "apps/kyc-review/src"];
 const violations = [];
 
 function walk(dir) {

@@ -471,6 +471,16 @@ export async function decideApproval(decision: ApprovalDecision): Promise<Invoke
   if (record.requested_by === approver.id) {
     return auditDecision("denied_scope", "an approver may not approve their own request");
   }
+  // `approvals:decide` says you may decide approvals; the capability's own approverScope says
+  // which ones. Without this, holding the generic scope would let anyone clear the highest-risk
+  // action in the registry.
+  const held = getCapability(record.capability);
+  if (held?.kind === "write" && !approver.scopes.includes(held.policy.approverScope)) {
+    return auditDecision(
+      "denied_scope",
+      `deciding ${record.capability} needs ${held.policy.approverScope}, which ${approver.role} does not hold`,
+    );
+  }
 
   if (decision.decision === "reject") {
     await withClient((client) =>

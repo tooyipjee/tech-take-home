@@ -4,6 +4,9 @@ const users = [
   { id: "u_agent", email: "avery@fin.example", name: "Avery (Support Agent)", role: "agent" },
   { id: "u_supervisor", email: "sam@fin.example", name: "Sam (Supervisor)", role: "supervisor" },
   { id: "u_admin", email: "robin@fin.example", name: "Robin (Platform Admin)", role: "admin" },
+  // Four-eyes needs two holders of every approver scope, or an approval only one
+  // person can raise is an approval nobody can decide.
+  { id: "u_admin_2", email: "dana@fin.example", name: "Dana (Compliance Admin)", role: "admin" },
 ];
 
 const customers = [
