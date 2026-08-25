@@ -46,11 +46,16 @@ cannot write a row that is not attributable to an audited invocation. New querie
 `error`.
 
 **Seeded principals.** `u_agent` (agent), `u_supervisor` (supervisor, can decide approvals and
-read audit), `u_admin` (admin, adds `flags:write` and `invariants:clear`). All roles have `invariants:read`. The console header switches acting user; the
-API takes `x-platform-user`.
+read audit), `u_admin` and `u_admin_2` (admins, adding `flags:write`, `kyc:sar` and
+`invariants:clear`; two of them so a compliance approval has a second pair of eyes). All roles
+have `invariants:read`. Every app header switches acting user; the API takes `x-platform-user`.
 
-**Commands.** `npm run setup` (Postgres + migrate + seed) · `npm run dev` (API :8080, console
-:5173) · `npm run lint` (boundary + tier check) · `npm run typecheck` · `npm test` ·
+**Deciding an approval** needs `approvals:decide` *and* the capability's declared `approverScope`,
+and never the requester themself.
+
+**Commands.** `npm run setup` (Postgres + migrate + seed) · `npm run dev` (api :8080 · console
+:5173 · kyc :5174 · refunds :5175 · review queue :5176; one at a time with `dev:kyc`,
+`dev:refunds`, `dev:queue`) · `npm run lint` (boundary + tier check) · `npm run typecheck` · `npm test` ·
 `npm run test:db` (invariants against a real database) · `npm run reconcile` (one-shot invariant
 check, non-zero exit on violation).
 
