@@ -8,8 +8,8 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@platform/app-kit": "*",
-    "@platform/sdk": "*",
+    "@rangka/app-kit": "*",
+    "@rangka/sdk": "*",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   }

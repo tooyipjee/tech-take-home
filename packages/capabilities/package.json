@@ -1,5 +1,5 @@
 {
-  "name": "@platform/capabilities",
+  "name": "@rangka/capabilities",
   "version": "0.1.0",
   "private": true,
   "type": "module",

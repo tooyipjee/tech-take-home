@@ -2,10 +2,10 @@
  * Capability contracts the KYC review queue is allowed to call.
  *
  * These mirror the Zod schemas registered in the platform capability registry. Identity, outcomes,
- * approvals and audit come from `@platform/sdk` — the only platform surface an app may import — so
+ * approvals and audit come from `@rangka/sdk` — the only platform surface an app may import — so
  * this file describes what is KYC-specific and nothing else.
  */
-import type { ApprovalSummary, CapabilityDescriptor, PlatformUser } from '@platform/sdk';
+import type { ApprovalSummary, CapabilityDescriptor, PlatformUser } from '@rangka/sdk';
 
 /** Identity is the platform's, not the app's: role → scopes is resolved by the kernel. */
 export type Actor = PlatformUser;

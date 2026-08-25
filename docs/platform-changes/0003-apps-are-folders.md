@@ -13,7 +13,7 @@ Structural, so that "build an internal tool" means "add a folder under `apps/`":
   (approvals, audit, registry, invariants) plus a launcher that links to each app.
 - `packages/app-kit` — what an app gets besides the SDK: the client bound to the
   acting user, the identity switcher, the outcome banner and the stylesheet. It
-  imports `@platform/sdk` and nothing deeper, so it cannot widen what an app can
+  imports `@rangka/sdk` and nothing deeper, so it cannot widen what an app can
   reach; it exists so a new app is a screen rather than a re-implemented shell.
 - `scripts/check-boundaries.mjs` — instead of a hand-maintained list of app
   directories, every folder under `apps/` except the two platform hosts (`api`,

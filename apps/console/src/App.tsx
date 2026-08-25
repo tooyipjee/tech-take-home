@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { PlatformUser } from "@platform/sdk";
-import { platform, setActingUser } from "@platform/app-kit";
+import type { PlatformUser } from "@rangka/sdk";
+import { platform, setActingUser } from "@rangka/app-kit";
 import { ApprovalsInbox } from "./platform/ApprovalsInbox.tsx";
 import { AuditLog } from "./platform/AuditLog.tsx";
 import { RegistryView } from "./platform/RegistryView.tsx";
@@ -54,7 +54,7 @@ export function App() {
   return (
     <>
       <header className="shell">
-        <h1>Internal Tool Platform</h1>
+        <h1>Rangka</h1>
         <span className="badge">apps call capabilities, never the database</span>
         <span className="spacer" />
         {/*

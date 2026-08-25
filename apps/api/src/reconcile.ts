@@ -2,9 +2,9 @@
  * One-shot reconciliation, for CI, cron, or a human asking "is it still true?".
  * Exits non-zero on a violation so a scheduler can page on it.
  */
-import { migrate, pool } from "@platform/db";
-import { describeViolations, reconcile, syncRegistry } from "@platform/kernel";
-import "@platform/capabilities";
+import { migrate, pool } from "@rangka/db";
+import { describeViolations, reconcile, syncRegistry } from "@rangka/kernel";
+import "@rangka/capabilities";
 
 try {
   await migrate();

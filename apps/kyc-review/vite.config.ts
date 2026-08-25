@@ -8,7 +8,7 @@ export default defineConfig({
   root: here('.'),
   plugins: [react()],
   resolve: {
-    alias: { '@platform/sdk': here('../../packages/sdk/src/index.ts') },
+    alias: { '@rangka/sdk': here('../../packages/sdk/src/index.ts') },
   },
   server: {
     port: 5174,

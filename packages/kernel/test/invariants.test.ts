@@ -5,7 +5,7 @@ import { z } from "zod";
 import { PolicyDeclarationError } from "../src/errors.ts";
 import { defineWrite } from "../src/registry.ts";
 import { getInvariant, invariants, invariantsFor } from "../src/invariants.ts";
-import "@platform/capabilities";
+import "@rangka/capabilities";
 
 /**
  * Structural checks on the derivation. The behavioural proof that each statement

@@ -1,4 +1,4 @@
-import type { InvokeResult } from "@platform/sdk";
+import type { InvokeResult } from "@rangka/sdk";
 
 const TONE: Record<string, string> = {
   ok: "ok",

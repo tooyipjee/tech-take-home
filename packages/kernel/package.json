@@ -1,5 +1,5 @@
 {
-  "name": "@platform/kernel",
+  "name": "@rangka/kernel",
   "version": "0.1.0",
   "private": true,
   "type": "module",

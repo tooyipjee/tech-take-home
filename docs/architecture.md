@@ -15,15 +15,15 @@ to the capability, and there is no code path that skips them.
 
 | Layer | Written by | Reviewed how | May touch |
 | --- | --- | --- | --- |
-| App (`apps/<app-name>`) | Devin | Skimmed — it cannot do damage | `@platform/sdk`, `@platform/app-kit` |
+| App (`apps/<app-name>`) | Devin | Skimmed — it cannot do damage | `@rangka/sdk`, `@rangka/app-kit` |
 | Capability (`packages/capabilities`) | Devin from a human spec | Read in full, line by line | `ctx.data`, its own input |
-| Runtime (`packages/kernel`) | Devin under the tier-2 playbook | Read in full, with adversarial DB tests and a change record | Everything |
-| Data (`packages/db`) | Devin under the tier-2 playbook | Migrations reviewed; additive only | Postgres |
+| Runtime (`packages/kernel`) | Devin under phase C of the playbook | Read in full, with adversarial DB tests and a change record | Everything |
+| Data (`packages/db`) | Devin under phase C of the playbook | Migrations reviewed; additive only | Postgres |
 
 The boundary is mechanically enforced by `npm run lint`, which fails if app code imports the
 kernel, the data layer, capability handlers, `pg`, or calls `fetch` directly — and, separately,
 if a change edits the platform without a record under `docs/platform-changes/`, or registers an
-invariant no test names. The two playbooks in `docs/devin/` are the two sides of that line.
+invariant no test names. [The playbook](devin/playbook.md) triages which side of that line a request falls on.
 
 ## The invocation pipeline
 

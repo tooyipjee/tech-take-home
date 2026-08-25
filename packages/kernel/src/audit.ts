@@ -1,4 +1,4 @@
-import { withClient } from "@platform/db";
+import { withClient } from "@rangka/db";
 import { ROLE_SCOPES } from "./auth.ts";
 import { listCapabilities } from "./registry.ts";
 

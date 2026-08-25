@@ -59,13 +59,13 @@ is repaired — at the cost of being the longer build.
 
 1. **Show the platform, not an app.** Console → Capability registry and Invariants: 29 statements,
    none hand-written, each derived from a declaration. Then the KYC app refusing something.
-2. **Tier 1, live.** Build a second KYC-domain screen from the tier-1 playbook. Point out what the
+2. **Tier 1, live.** Build a second KYC-domain screen from the playbook. Point out what the
    session was *not allowed* to do — and that adding the folder was the whole wiring: it typechecks,
    builds, runs and lands on the launcher because everything discovers `apps/*`.
-3. **Tier 1 refuses.** Ask the same playbook for the flag admin. It must stop at step 0 and
+3. **Tier 1 refuses.** Ask the same playbook for the flag admin. Triage must class it tier 2 and
    escalate: no `flags.*` capability, no `flags:write` scope. Show `npm run lint` failing if it
    tries anyway, and the boundary check rejecting an `app.json` that claims a scope no role holds.
-4. **Tier 2.** Run the extend playbook for flags: declaration, derived invariants, change record,
+4. **Tier 2.** Run the playbook's phase C for flags: declaration, derived invariants, change record,
    adversarial tests. This is the slow, reviewed half, and it should look slow.
 5. **Tier 1 again.** The flag admin, now cheap, on the launcher next to the others.
 6. **Break it.** `psql` a flag change with no invocation; watch the halt, then the clear.

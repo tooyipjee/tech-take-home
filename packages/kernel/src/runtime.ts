@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { createDataSource, StaleRevisionError, withClient, withTransaction } from "@platform/db";
-import type { PgClient } from "@platform/db";
+import { createDataSource, StaleRevisionError, withClient, withTransaction } from "@rangka/db";
+import type { PgClient } from "@rangka/db";
 import { resolvePrincipal } from "./auth.ts";
 import { activeHalt } from "./reconciler.ts";
 import { getCapability } from "./registry.ts";

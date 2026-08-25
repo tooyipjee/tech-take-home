@@ -1,4 +1,4 @@
-import { createClient } from "@platform/sdk";
+import { createClient } from "@rangka/sdk";
 
 let actingUserId = "u_agent";
 

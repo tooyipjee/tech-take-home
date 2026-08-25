@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ApprovalSummary, CapabilityDescriptor, InvokeResult } from "@platform/sdk";
-import { OutcomeBanner, OutcomeBadge, platform, when } from "@platform/app-kit";
+import type { ApprovalSummary, CapabilityDescriptor, InvokeResult } from "@rangka/sdk";
+import { OutcomeBanner, OutcomeBadge, platform, when } from "@rangka/app-kit";
 
 interface CaseSummary {
   id: string;

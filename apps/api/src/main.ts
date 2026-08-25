@@ -1,6 +1,6 @@
 import cors from "@fastify/cors";
 import Fastify from "fastify";
-import { migrate, pool, withClient } from "@platform/db";
+import { migrate, pool, withClient } from "@rangka/db";
 import {
   clearHalt,
   decideApproval,
@@ -15,9 +15,9 @@ import {
   resolvePrincipal,
   startReconciler,
   syncRegistry,
-} from "@platform/kernel";
-import type { Principal } from "@platform/kernel";
-import "@platform/capabilities";
+} from "@rangka/kernel";
+import type { Principal } from "@rangka/kernel";
+import "@rangka/capabilities";
 
 const app = Fastify({ logger: { level: "warn" } });
 await app.register(cors, { origin: true });

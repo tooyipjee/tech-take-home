@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import type { PlatformUser } from "@platform/sdk";
+import type { PlatformUser } from "@rangka/sdk";
 
 /**
  * An app is a folder under `apps/` served on its own port, so the launcher
@@ -40,7 +40,7 @@ export function Launcher({ user }: { user: PlatformUser | undefined }) {
           ? `Signed in as ${user.name} — ${user.role}, ${held.length} scopes. Locked tiles show what is missing.`
           : "Loading identity…"}{" "}
         Each app is a folder in <code>apps/</code> with its own dev server and an <code>app.json</code>,
-        talking to this platform through <code>@platform/sdk</code>. Tile availability is presentation
+        talking to this platform through <code>@rangka/sdk</code>. Tile availability is presentation
         only; the runtime re-checks scopes on every capability call.
       </p>
       <div className="tile-grid">

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import type { InvariantReport } from "@platform/sdk";
-import { platform } from "@platform/app-kit";
+import type { InvariantReport } from "@rangka/sdk";
+import { platform } from "@rangka/app-kit";
 
 /**
  * The observability surface: what the platform claims is true, when it last

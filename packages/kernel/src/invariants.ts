@@ -1,4 +1,4 @@
-import type { PgClient } from "@platform/db";
+import type { PgClient } from "@rangka/db";
 import { listCapabilities } from "./registry.ts";
 import type { EffectDeclaration, WriteCapability, WritePolicy } from "./types.ts";
 

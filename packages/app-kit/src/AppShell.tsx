@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import type { PlatformUser } from "@platform/sdk";
+import type { PlatformUser } from "@rangka/sdk";
 import { platform, setActingUser } from "./client.ts";
 
 /**

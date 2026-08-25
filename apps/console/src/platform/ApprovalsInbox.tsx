@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ApprovalSummary, InvokeResult } from "@platform/sdk";
-import { money, OutcomeBanner, platform } from "@platform/app-kit";
+import type { ApprovalSummary, InvokeResult } from "@rangka/sdk";
+import { money, OutcomeBanner, platform } from "@rangka/app-kit";
 
 export function ApprovalsInbox({ actorId }: { actorId: string }) {
   const [approvals, setApprovals] = useState<ApprovalSummary[]>([]);
