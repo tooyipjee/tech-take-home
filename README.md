@@ -66,6 +66,13 @@ npm run reconcile # one-shot check of committed data; non-zero exit on a violati
 raw SQL, forges audit rows, edits history, and runs a handler that moves ten times what it
 declared, then asserts the database or the runtime stopped it.
 
+CI is split the same way the work is. `.github/workflows/framework.yml` runs the whole list
+above, including the adversarial suite against a Postgres service container and migrations
+applied to an empty database, whenever anything under `packages/`, `apps/api/` or `scripts/`
+changes. `.github/workflows/apps.yml` runs on app changes only and does just boundary check,
+typecheck and build — an app cannot weaken a guarantee, so re-proving them on every app PR would
+be theatre.
+
 ## How the rules work
 
 A rule here is an **invariant**: one SQL statement over committed data that must return zero
