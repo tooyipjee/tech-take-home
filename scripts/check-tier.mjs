@@ -1,12 +1,12 @@
 /**
  * Tier check: the boundary between building an app and changing the platform.
  *
- * Tier 1 (build an internal tool) consumes existing capabilities and tenets. It
+ * Tier 1 (build an internal tool) consumes existing capabilities and invariants. It
  * may touch app code and docs only.
  *
- * Tier 2 (extend the platform) may change the kernel, the tenets, the schema or
+ * Tier 2 (extend the platform) may change the kernel, the invariants, the schema or
  * the capability set — and must say so in writing, in a change record that names
- * the tenet it affects and how it was tested. This script is what makes that a
+ * the invariant it affects and how it was tested. This script is what makes that a
  * rule rather than an expectation: a tier-1 change that edits the kernel fails
  * here, before review.
  */
@@ -14,8 +14,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 
 const PROTECTED = [
-  { prefix: "packages/kernel/", why: "the runtime and the tenets" },
-  { prefix: "packages/db/migrations/", why: "the database-enforced tenets" },
+  { prefix: "packages/kernel/", why: "the runtime and the invariants" },
+  { prefix: "packages/db/migrations/", why: "the database-enforced invariants" },
   { prefix: "packages/db/src/datasource.ts", why: "the data surface handlers are given" },
   { prefix: "packages/capabilities/", why: "the declared capability set and its policy" },
   { prefix: "packages/sdk/", why: "the surface every app depends on" },
@@ -23,7 +23,7 @@ const PROTECTED = [
 ];
 
 const CHANGE_RECORD_DIR = "docs/platform-changes";
-const REQUIRED_SECTIONS = ["## Tenets affected", "## How it was verified", "## Rollback"];
+const REQUIRED_SECTIONS = ["## Invariants affected", "## How it was verified", "## Rollback"];
 
 const base = process.env.TIER_CHECK_BASE ?? defaultBase();
 
@@ -74,7 +74,7 @@ if (files === null) {
       `This change edits the platform, which is tier-2 work:\n` +
         platformEdits.map((file) => `    ${file}`).join("\n") +
         `\n  Add a change record under ${CHANGE_RECORD_DIR}/ describing what it means for the` +
-        `\n  tenets, or keep the change inside an app (tier 1).`,
+        `\n  invariants, or keep the change inside an app (tier 1).`,
     );
   }
 
@@ -88,13 +88,13 @@ if (files === null) {
   }
 }
 
-// Tenets are derived from declarations at runtime, so the "every tenet is
+// Invariants are derived from declarations at runtime, so the "every invariant is
 // attacked by a test" check lives in the test suite itself, where the derivation
 // can be executed. What is checkable statically is that the check still exists.
-const tenetTest = readFileSync("packages/kernel/test/tenets.test.ts", "utf8");
-if (!tenetTest.includes("no tenet is in force without a test that attacks it")) {
+const invariantTest = readFileSync("packages/kernel/test/invariants.test.ts", "utf8");
+if (!invariantTest.includes("no invariant is in force without a test that attacks it")) {
   problems.push(
-    "the tenet coverage test was removed; a tenet with no test is a sentence, not a guarantee",
+    "the invariant coverage test was removed; an invariant with no test is a sentence, not a guarantee",
   );
 }
 

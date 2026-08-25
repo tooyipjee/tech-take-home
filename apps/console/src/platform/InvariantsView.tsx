@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
-import type { TenetReport } from "@platform/sdk";
+import type { InvariantReport } from "@platform/sdk";
 import { platform } from "../client.ts";
 
 /**
  * The observability surface: what the platform claims is true, when it last
  * proved it, and what it stopped when the proof failed.
  */
-export function TenetsView({ actorId }: { actorId: string }) {
-  const [report, setReport] = useState<TenetReport | null>(null);
+export function InvariantsView({ actorId }: { actorId: string }) {
+  const [report, setReport] = useState<InvariantReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setReport(await platform.tenets());
+      setReport(await platform.invariants());
       setError(null);
     } catch (loadError) {
       setError((loadError as Error).message);
@@ -25,10 +25,10 @@ export function TenetsView({ actorId }: { actorId: string }) {
   }, [load, actorId]);
 
   async function runNow() {
-    const result = await platform.runTenets();
+    const result = await platform.runInvariants();
     setNote(
       result.violations.length === 0
-        ? `all tenets held at ${new Date(result.checkedAt).toLocaleTimeString()}`
+        ? `all invariants held at ${new Date(result.checkedAt).toLocaleTimeString()}`
         : `${result.violations.length} violation(s); halted: ${result.halted.join(", ") || "already halted"}`,
     );
     await load();
@@ -45,7 +45,7 @@ export function TenetsView({ actorId }: { actorId: string }) {
 
   return (
     <>
-      <h2>Tenets</h2>
+      <h2>Invariants</h2>
       <p className="hint">
         Statements the platform proves against committed data, both as a postcondition inside every
         writing transaction and on a timer. A violation halts the capabilities it guards.
@@ -61,7 +61,7 @@ export function TenetsView({ actorId }: { actorId: string }) {
           {report.halts.map((halt) => (
             <div key={halt.id}>
               <code>
-                {halt.capability} — {halt.tenetId}: {halt.detail}
+                {halt.capability} — {halt.invariantId}: {halt.detail}
               </code>{" "}
               <button className="action secondary" onClick={() => void clear(halt.capability)}>
                 Clear halt
@@ -74,7 +74,7 @@ export function TenetsView({ actorId }: { actorId: string }) {
       <table>
         <thead>
           <tr>
-            <th>Tenet</th>
+            <th>Invariant</th>
             <th>Statement</th>
             <th>Derived from</th>
             <th>Guards</th>
@@ -83,24 +83,24 @@ export function TenetsView({ actorId }: { actorId: string }) {
           </tr>
         </thead>
         <tbody>
-          {report.tenets.map((tenet) => (
-            <tr key={tenet.id}>
+          {report.invariants.map((invariant) => (
+            <tr key={invariant.id}>
               <td>
-                <code>{tenet.id}</code>
+                <code>{invariant.id}</code>
               </td>
-              <td>{tenet.statement}</td>
-              <td className="hint">{tenet.derivedFrom}</td>
+              <td>{invariant.statement}</td>
+              <td className="hint">{invariant.derivedFrom}</td>
               <td>
-                <code>{tenet.halts.join(", ") || "—"}</code>
+                <code>{invariant.halts.join(", ") || "—"}</code>
               </td>
-              <td>{tenet.lastRunAt ? new Date(tenet.lastRunAt).toLocaleTimeString() : "never"}</td>
+              <td>{invariant.lastRunAt ? new Date(invariant.lastRunAt).toLocaleTimeString() : "never"}</td>
               <td>
-                <span className={`badge ${tenet.violations > 0 ? "bad" : "ok"}`}>
-                  {tenet.violations > 0 ? `${tenet.violations} violation(s)` : "holds"}
+                <span className={`badge ${invariant.violations > 0 ? "bad" : "ok"}`}>
+                  {invariant.violations > 0 ? `${invariant.violations} violation(s)` : "holds"}
                 </span>
-                {tenet.detail ? (
+                {invariant.detail ? (
                   <div>
-                    <code>{tenet.detail}</code>
+                    <code>{invariant.detail}</code>
                   </div>
                 ) : null}
               </td>

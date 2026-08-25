@@ -1,10 +1,10 @@
 import { withClient } from "@platform/db";
 import type { PgClient } from "@platform/db";
-import { checkTenet, describeViolations, getTenet, tenets, tenetsHalting } from "./tenets.ts";
-import type { Tenet, TenetViolation } from "./tenets.ts";
+import { checkInvariant, describeViolations, getInvariant, invariants, invariantsHalting } from "./invariants.ts";
+import type { Invariant, InvariantViolation } from "./invariants.ts";
 import type { Principal } from "./types.ts";
 
-export interface TenetStatus {
+export interface InvariantStatus {
   id: string;
   statement: string;
   derivedFrom: string;
@@ -18,42 +18,42 @@ export interface TenetStatus {
 export interface HaltRow {
   id: number;
   capability: string;
-  tenetId: string;
+  invariantId: string;
   detail: string;
   haltedAt: string;
 }
 
 export interface ReconciliationResult {
   checkedAt: string;
-  violations: TenetViolation[];
+  violations: InvariantViolation[];
   halted: string[];
 }
 
 /**
- * Re-derives every tenet from committed state and halts the capabilities a
- * violated tenet guards.
+ * Re-derives every invariant from committed state and halts the capabilities a
+ * violated invariant guards.
  *
- * The runtime already refuses to commit a transaction that breaks a tenet, so
+ * The runtime already refuses to commit a transaction that breaks an invariant, so
  * anything this finds arrived by a path the runtime never saw — a manual UPDATE,
  * a migration, a restore from backup, a bug in the kernel itself. That is
  * exactly the class of problem an audit log alone cannot tell you about, which
  * is why this runs on a timer rather than only in tests.
  */
 export async function reconcile(): Promise<ReconciliationResult> {
-  const violations: TenetViolation[] = [];
+  const violations: InvariantViolation[] = [];
   const halted: string[] = [];
 
   await withClient(async (client) => {
-    for (const tenet of tenets()) {
+    for (const invariant of invariants()) {
       const started = Date.now();
-      const found = await checkTenet(client, tenet);
+      const found = await checkInvariant(client, invariant);
       violations.push(...found);
       await client.query(
-        "insert into tenet_runs (tenet_id, violations, detail, duration_ms) values ($1, $2, $3, $4)",
-        [tenet.id, found.length, found.length ? describeViolations(found) : null, Date.now() - started],
+        "insert into invariant_runs (invariant_id, violations, detail, duration_ms) values ($1, $2, $3, $4)",
+        [invariant.id, found.length, found.length ? describeViolations(found) : null, Date.now() - started],
       );
       if (found.length > 0) {
-        halted.push(...(await haltCapabilities(client, tenet, found)));
+        halted.push(...(await haltCapabilities(client, invariant, found)));
       }
     }
   });
@@ -63,16 +63,16 @@ export async function reconcile(): Promise<ReconciliationResult> {
 
 async function haltCapabilities(
   client: PgClient,
-  tenet: Tenet,
-  violations: TenetViolation[],
+  invariant: Invariant,
+  violations: InvariantViolation[],
 ): Promise<string[]> {
   const halted: string[] = [];
-  for (const capability of tenet.halts) {
+  for (const capability of invariant.halts) {
     const { rowCount } = await client.query(
-      `insert into capability_halts (capability, tenet_id, detail)
+      `insert into capability_halts (capability, invariant_id, detail)
        values ($1, $2, $3)
        on conflict do nothing`,
-      [capability, tenet.id, describeViolations(violations).slice(0, 2000)],
+      [capability, invariant.id, describeViolations(violations).slice(0, 2000)],
     );
     if (rowCount) halted.push(capability);
   }
@@ -81,7 +81,7 @@ async function haltCapabilities(
 
 export async function activeHalt(client: PgClient, capability: string): Promise<HaltRow | null> {
   const { rows } = await client.query(
-    `select id, capability, tenet_id, detail, halted_at
+    `select id, capability, invariant_id, detail, halted_at
        from capability_halts where capability = $1 and cleared_at is null`,
     [capability],
   );
@@ -90,7 +90,7 @@ export async function activeHalt(client: PgClient, capability: string): Promise<
     ? {
         id: Number(row.id),
         capability: row.capability,
-        tenetId: row.tenet_id,
+        invariantId: row.invariant_id,
         detail: row.detail,
         haltedAt: row.halted_at.toISOString(),
       }
@@ -100,34 +100,34 @@ export async function activeHalt(client: PgClient, capability: string): Promise<
 export async function listHalts(): Promise<HaltRow[]> {
   return withClient(async (client) => {
     const { rows } = await client.query(
-      `select id, capability, tenet_id, detail, halted_at
+      `select id, capability, invariant_id, detail, halted_at
          from capability_halts where cleared_at is null order by halted_at desc`,
     );
     return rows.map((row) => ({
       id: Number(row.id),
       capability: row.capability,
-      tenetId: row.tenet_id,
+      invariantId: row.invariant_id,
       detail: row.detail,
       haltedAt: row.halted_at.toISOString(),
     }));
   });
 }
 
-export async function listTenetStatus(): Promise<TenetStatus[]> {
+export async function listInvariantStatus(): Promise<InvariantStatus[]> {
   return withClient(async (client) => {
     const { rows } = await client.query(
-      `select distinct on (tenet_id) tenet_id, at, violations, detail
-         from tenet_runs order by tenet_id, at desc`,
+      `select distinct on (invariant_id) invariant_id, at, violations, detail
+         from invariant_runs order by invariant_id, at desc`,
     );
-    const latest = new Map(rows.map((row) => [row.tenet_id, row]));
-    return tenets().map((tenet) => {
-      const run = latest.get(tenet.id);
+    const latest = new Map(rows.map((row) => [row.invariant_id, row]));
+    return invariants().map((invariant) => {
+      const run = latest.get(invariant.id);
       return {
-        id: tenet.id,
-        statement: tenet.statement,
-        derivedFrom: tenet.derivedFrom,
-        halts: tenet.halts,
-        postconditionFor: tenet.postconditionFor,
+        id: invariant.id,
+        statement: invariant.statement,
+        derivedFrom: invariant.derivedFrom,
+        halts: invariant.halts,
+        postconditionFor: invariant.postconditionFor,
         lastRunAt: run ? run.at.toISOString() : null,
         violations: run ? Number(run.violations) : 0,
         detail: run?.detail ?? null,
@@ -143,10 +143,10 @@ export interface ClearHaltResult {
 
 /**
  * Clearing is a human decision, but not a way to make a violation disappear:
- * the tenet is re-run first and the halt stays if the data is still wrong.
+ * the invariant is re-run first and the halt stays if the data is still wrong.
  */
 export async function clearHalt(capability: string, principal: Principal): Promise<ClearHaltResult> {
-  if (!principal.scopes.includes("tenets:clear")) {
+  if (!principal.scopes.includes("invariants:clear")) {
     return { cleared: false, message: `${principal.role} cannot clear a halt` };
   }
 
@@ -154,17 +154,17 @@ export async function clearHalt(capability: string, principal: Principal): Promi
     const halt = await activeHalt(client, capability);
     if (!halt) return { cleared: false, message: `${capability} is not halted` };
 
-    // Every tenet guarding this capability is re-run, not just the one that
+    // Every invariant guarding this capability is re-run, not just the one that
     // tripped: resuming on a green light from one statement while another is
     // broken would be the same mistake as not checking at all.
-    const guarding = tenetsHalting(capability);
-    for (const tenet of guarding.length > 0 ? guarding : [getTenet(halt.tenetId)]) {
-      if (!tenet) continue;
-      const stillBroken = await checkTenet(client, tenet);
+    const guarding = invariantsHalting(capability);
+    for (const invariant of guarding.length > 0 ? guarding : [getInvariant(halt.invariantId)]) {
+      if (!invariant) continue;
+      const stillBroken = await checkInvariant(client, invariant);
       if (stillBroken.length > 0) {
         return {
           cleared: false,
-          message: `${tenet.id} is still violated: ${describeViolations(stillBroken)}`,
+          message: `${invariant.id} is still violated: ${describeViolations(stillBroken)}`,
         };
       }
     }

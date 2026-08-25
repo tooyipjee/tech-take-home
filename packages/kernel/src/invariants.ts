@@ -3,9 +3,9 @@ import { listCapabilities } from "./registry.ts";
 import type { EffectDeclaration, WriteCapability } from "./types.ts";
 
 /**
- * A tenet is a statement about the data that must be true at all times.
+ * An invariant is a statement about the data that must be true at all times.
  *
- * Tenets are not a hand-written list of things somebody thought of. They come
+ * Invariants are not a hand-written list of things somebody thought of. They come
  * from two places, and that is what makes the set complete rather than arbitrary:
  *
  *   1. **Axioms** — properties of the platform itself, true of every capability
@@ -13,28 +13,28 @@ import type { EffectDeclaration, WriteCapability } from "./types.ts";
  *   2. **Derivation from the declaration** — every field of a write policy that
  *      a human reviewed (`limits`, `approval`, `idempotent`) plus the effect it
  *      declares (where the row lands, what pool it draws down) generates the
- *      tenet that committed data obeys it.
+ *      invariant that committed data obeys it.
  *
  * So a new money-moving capability gets its rules the moment it is declared, and
  * a rule cannot drift from the declaration it came from: they are the same
  * sentence, one enforced before the fact and one proved after it.
  *
- * Tenets are expressed as SQL over committed state rather than as assertions in
+ * Invariants are expressed as SQL over committed state rather than as assertions in
  * a handler, so the same statement is checkable by three mechanisms that do not
  * trust each other — as a postcondition inside the transaction making a change,
  * by the reconciler on a timer, and by a human with `psql`.
  *
- * `query` returns zero rows when the tenet holds, and one row per violation
+ * `query` returns zero rows when the invariant holds, and one row per violation
  * otherwise, with a `subject` and a `detail` column.
  */
-export interface Tenet {
+export interface Invariant {
   id: string;
   /** The claim, in the words you would use to defend it to an auditor. */
   statement: string;
   query: string;
-  /** What this tenet was derived from, so a reader can check the derivation. */
+  /** What this invariant was derived from, so a reader can check the derivation. */
   derivedFrom: string;
-  /** Capabilities halted while this tenet is violated. */
+  /** Capabilities halted while this invariant is violated. */
   halts: string[];
   /** Checked inside the transaction of these capabilities, before commit. */
   postconditionFor: string[];
@@ -60,7 +60,7 @@ const liveRows = (effect: EffectDeclaration) =>
   effect.live ? `e.${effect.live.column} = '${effect.live.equals}'` : "true";
 
 /** Properties of the platform, independent of any capability that uses it. */
-const AXIOMS: Tenet[] = [
+const AXIOMS: Invariant[] = [
   {
     id: "approvals.decided_by_a_second_person",
     statement: "No approval was decided by the person who requested it.",
@@ -74,7 +74,7 @@ const AXIOMS: Tenet[] = [
   },
 ];
 
-function deriveTenets(capability: WriteCapability): Tenet[] {
+function deriveInvariants(capability: WriteCapability): Invariant[] {
   const { name, policy } = capability;
   const effect = policy.effect;
   if (!effect) return [];
@@ -82,11 +82,11 @@ function deriveTenets(capability: WriteCapability): Tenet[] {
   const live = liveRows(effect);
   const amount = `e.${effect.amountColumn}`;
   const guards = { halts: [name], postconditionFor: [name] };
-  const tenets: Tenet[] = [];
+  const invariants: Invariant[] = [];
 
   // From the platform's attribution rule: an effect is one audited invocation's
   // doing, and moved exactly the amount that invocation recorded.
-  tenets.push({
+  invariants.push({
     id: `${name}.effects_are_attributed`,
     statement: `Every row in ${effect.table} was written by one audited ${name} invocation that recorded the same amount.`,
     derivedFrom: "axiom: an effect nobody audited did not legitimately happen",
@@ -107,7 +107,7 @@ function deriveTenets(capability: WriteCapability): Tenet[] {
 
   if (effect.conserves) {
     const pool = effect.conserves;
-    tenets.push({
+    invariants.push({
       id: `${name}.conserves_${pool.table}`,
       statement: `The ${effect.table} rows drawn against a ${pool.table} row never exceed it.`,
       derivedFrom: `policy.effect.conserves: ${effect.table}.${effect.amountColumn} draws down ${pool.table}.${pool.amountColumn}`,
@@ -123,7 +123,7 @@ function deriveTenets(capability: WriteCapability): Tenet[] {
   }
 
   if (policy.limits.maxAmountCents !== null) {
-    tenets.push({
+    invariants.push({
       id: `${name}.respects_declared_ceiling`,
       statement: `No ${effect.table} row exceeds the per-invocation ceiling ${name} declares.`,
       derivedFrom: "policy.limits.maxAmountCents",
@@ -143,7 +143,7 @@ function deriveTenets(capability: WriteCapability): Tenet[] {
       policy.approval.mode === "above_amount"
         ? `and ${approvalThreshold(name)} is not null and ${amount} > ${approvalThreshold(name)}`
         : "";
-    tenets.push({
+    invariants.push({
       id: `${name}.carries_the_declared_approval`,
       statement:
         policy.approval.mode === "above_amount"
@@ -171,7 +171,7 @@ function deriveTenets(capability: WriteCapability): Tenet[] {
     });
   }
 
-  tenets.push({
+  invariants.push({
     id: `${name}.respects_declared_rate`,
     statement: `No actor was accepted for ${name} more often in an hour than it declares.`,
     derivedFrom: "policy.limits.maxPerHour",
@@ -194,7 +194,7 @@ function deriveTenets(capability: WriteCapability): Tenet[] {
     ...guards,
   });
 
-  tenets.push({
+  invariants.push({
     id: `${name}.is_idempotent`,
     statement: `No idempotency key for ${name} produced more than one row in ${effect.table}.`,
     derivedFrom: "policy.idempotent",
@@ -211,44 +211,44 @@ function deriveTenets(capability: WriteCapability): Tenet[] {
     ...guards,
   });
 
-  return tenets;
+  return invariants;
 }
 
 /**
- * Every tenet currently in force: the axioms, plus those derived from the policy
+ * Every invariant currently in force: the axioms, plus those derived from the policy
  * of each registered write capability. Derived rather than stored, so the set
  * cannot fall behind the declarations it is supposed to be proving.
  */
-export function tenets(): Tenet[] {
+export function invariants(): Invariant[] {
   const derived = listCapabilities()
     .filter((capability): capability is WriteCapability => capability.kind === "write")
-    .flatMap(deriveTenets);
+    .flatMap(deriveInvariants);
   return [...AXIOMS, ...derived];
 }
 
-export interface TenetViolation {
-  tenetId: string;
+export interface InvariantViolation {
+  invariantId: string;
   subject: string;
   detail: string;
 }
 
-export function getTenet(id: string): Tenet | undefined {
-  return tenets().find((tenet) => tenet.id === id);
+export function getInvariant(id: string): Invariant | undefined {
+  return invariants().find((invariant) => invariant.id === id);
 }
 
-export function tenetsFor(capability: string): Tenet[] {
-  return tenets().filter((tenet) => tenet.postconditionFor.includes(capability));
+export function invariantsFor(capability: string): Invariant[] {
+  return invariants().filter((invariant) => invariant.postconditionFor.includes(capability));
 }
 
-export function tenetsHalting(capability: string): Tenet[] {
-  return tenets().filter((tenet) => tenet.halts.includes(capability));
+export function invariantsHalting(capability: string): Invariant[] {
+  return invariants().filter((invariant) => invariant.halts.includes(capability));
 }
 
-/** Runs one tenet against whatever the given client can see. */
-export async function checkTenet(client: PgClient, tenet: Tenet): Promise<TenetViolation[]> {
-  const { rows } = await client.query<{ subject: string; detail: string }>(tenet.query);
+/** Runs one invariant against whatever the given client can see. */
+export async function checkInvariant(client: PgClient, invariant: Invariant): Promise<InvariantViolation[]> {
+  const { rows } = await client.query<{ subject: string; detail: string }>(invariant.query);
   return rows.map((row) => ({
-    tenetId: tenet.id,
+    invariantId: invariant.id,
     subject: String(row.subject),
     detail: String(row.detail),
   }));
@@ -262,16 +262,16 @@ export async function checkTenet(client: PgClient, tenet: Tenet): Promise<TenetV
 export async function assertPostconditions(
   client: PgClient,
   capability: string,
-): Promise<TenetViolation[]> {
-  const violations: TenetViolation[] = [];
-  for (const tenet of tenetsFor(capability)) {
-    violations.push(...(await checkTenet(client, tenet)));
+): Promise<InvariantViolation[]> {
+  const violations: InvariantViolation[] = [];
+  for (const invariant of invariantsFor(capability)) {
+    violations.push(...(await checkInvariant(client, invariant)));
   }
   return violations;
 }
 
-export function describeViolations(violations: TenetViolation[]): string {
+export function describeViolations(violations: InvariantViolation[]): string {
   return violations
-    .map((violation) => `${violation.tenetId}: ${violation.subject} (${violation.detail})`)
+    .map((violation) => `${violation.invariantId}: ${violation.subject} (${violation.detail})`)
     .join("; ");
 }

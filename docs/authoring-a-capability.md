@@ -38,9 +38,9 @@ export const submitEvidence = defineWrite({
 - A capability declaring an amount ceiling or amount-based approval without an `amountField`
   **fails to register at boot**.
 - A capability that moves money (a non-null `maxAmountCents`) without an `effect` declaration
-  **fails to register at boot**: with nowhere named for the money to land, no tenet can be
+  **fails to register at boot**: with nowhere named for the money to land, no invariant can be
   derived and nothing about it could be proved after the fact.
-- The `effect` declaration generates this capability's tenets — attribution, conservation
+- The `effect` declaration generates this capability's invariants — attribution, conservation
   against the pool it names, the ceiling, the approval rule, the rate, idempotency — which are
   then proved inside its own transaction and re-proved by the reconciler.
 - Writes without an idempotency key are rejected at invocation.
