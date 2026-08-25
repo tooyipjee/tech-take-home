@@ -1,8 +1,12 @@
 {
-  "name": "@platform/console",
+  "name": "@app/refunds",
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
   "dependencies": {
     "@platform/app-kit": "*",
     "@platform/sdk": "*",

@@ -41,8 +41,12 @@ export interface CapabilityDescriptor {
 }
 
 export interface PlatformClient {
-  /** Reads never need an idempotency key; writes always get one. */
-  invoke<T>(capability: string, input?: unknown): Promise<InvokeResult<T>>;
+  /**
+   * Reads never need an idempotency key; writes always get one. Pass a deterministic
+   * key (e.g. `resource + revision`) to make a retried or double-clicked write replay
+   * instead of repeating the effect; omit it for a fresh key per call.
+   */
+  invoke<T>(capability: string, input?: unknown, idempotencyKey?: string): Promise<InvokeResult<T>>;
   users(): Promise<PlatformUser[]>;
   capabilities(): Promise<CapabilityDescriptor[]>;
   approvals(status?: string): Promise<ApprovalSummary[]>;
@@ -93,6 +97,8 @@ export interface ApprovalSummary {
   requestedBy: string;
   requestedByName: string;
   status: string;
+  decidedBy: string | null;
+  decidedAt: string | null;
   createdAt: string;
 }
 
@@ -133,10 +139,10 @@ export function createClient(getUserId: () => string, baseUrl = "/api"): Platfor
   }
 
   return {
-    invoke: (capability, input = {}) =>
+    invoke: (capability, input = {}, idempotencyKey = crypto.randomUUID()) =>
       call(`/capabilities/${capability}/invoke`, {
         method: "POST",
-        body: JSON.stringify({ input, idempotencyKey: crypto.randomUUID() }),
+        body: JSON.stringify({ input, idempotencyKey }),
       }),
     users: () => call("/users"),
     capabilities: () => call("/capabilities"),

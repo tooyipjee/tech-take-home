@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
 import type { PlatformUser } from "@platform/sdk";
-import { platform, setActingUser } from "./client.ts";
-import { RefundsQueue } from "./apps/RefundsQueue.tsx";
-import { ReviewQueue } from "./apps/ReviewQueue.tsx";
+import { platform, setActingUser } from "@platform/app-kit";
 import { ApprovalsInbox } from "./platform/ApprovalsInbox.tsx";
 import { AuditLog } from "./platform/AuditLog.tsx";
 import { RegistryView } from "./platform/RegistryView.tsx";
 import { InvariantsView } from "./platform/InvariantsView.tsx";
+import { Launcher } from "./Launcher.tsx";
 
+/**
+ * The console is a platform surface, not an app: approvals, audit, the registry
+ * and invariant health. The apps live in `apps/*` and are launched from here.
+ */
 const TABS = [
-  { id: "refunds", label: "Refunds (app)" },
-  { id: "queue", label: "Review queue (app)" },
+  { id: "apps", label: "Apps" },
   { id: "approvals", label: "Approvals" },
   { id: "audit", label: "Audit log" },
   { id: "registry", label: "Capability registry" },
@@ -22,10 +24,13 @@ type TabId = (typeof TABS)[number]["id"];
 export function App() {
   const [users, setUsers] = useState<PlatformUser[]>([]);
   const [userId, setUserId] = useState("u_agent");
-  const [tab, setTab] = useState<TabId>("refunds");
+  const [tab, setTab] = useState<TabId>("apps");
 
   useEffect(() => {
-    platform.users().then(setUsers).catch(() => setUsers([]));
+    platform
+      .users()
+      .then(setUsers)
+      .catch(() => setUsers([]));
   }, []);
 
   const current = users.find((user) => user.id === userId);
@@ -68,8 +73,7 @@ export function App() {
 
       <main>
         <section className="panel">
-          {tab === "refunds" ? <RefundsQueue actorId={userId} /> : null}
-          {tab === "queue" ? <ReviewQueue actorId={userId} /> : null}
+          {tab === "apps" ? <Launcher /> : null}
           {tab === "approvals" ? <ApprovalsInbox actorId={userId} /> : null}
           {tab === "audit" ? <AuditLog actorId={userId} /> : null}
           {tab === "registry" ? <RegistryView /> : null}

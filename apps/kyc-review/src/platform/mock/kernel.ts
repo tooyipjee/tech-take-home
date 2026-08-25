@@ -1,86 +1,99 @@
+import type { AuditEntry, CapabilityDescriptor, InvokeResult, Outcome } from '@platform/sdk';
 import type {
   Actor,
-  ApprovalRequest,
-  ApprovalTier,
-  AuditEntry,
+  ApproverScope,
   CapabilityInput,
   CapabilityName,
   CaseDetail,
   CaseEvent,
+  KycApproval,
+  KycWritePolicy,
 } from '../contracts';
-import { CAPABILITY_POLICIES } from '../contracts';
-import type { CapabilityClient, CapabilityResult, DenialCode, InvokeOptions } from '../client';
+import { CAPABILITY_DESCRIPTORS } from '../contracts';
+import type { KycPlatformClient } from '../client';
 import { buildCases, unmaskedIdentity } from './fixtures';
 
 /**
- * An in-browser implementation of the platform kernel's middleware chain:
- * authz → limits → idempotency → approval → execute → audit.
+ * An in-browser implementation of the platform runtime, in the order the kernel runs it:
+ * authorisation → validation → rate limit → approval → execute, with an audit row written for
+ * every outcome including the refusals.
  *
- * It exists so the app can run and be demoed before the API host is up, and so policy behaviour is
- * exercised without Postgres. The HTTP adapter is the production path; both satisfy CapabilityClient,
- * and any divergence between them is a bug in this file.
+ * It exists so the app can be run and demoed before the API host has KYC capabilities registered.
+ * It implements the same `PlatformClient` the SDK returns, so switching to the real runtime is a
+ * change of adapter and nothing else — any behavioural difference between the two is a bug here.
  */
 
 let counter = 0;
 const nextId = (prefix: string) => `${prefix}_${(++counter).toString().padStart(4, '0')}`;
 
-interface Denial {
-  code: DenialCode;
-  message: string;
-  policy: string;
-}
-
-class DenialError extends Error {
-  constructor(readonly denial: Denial) {
-    super(denial.message);
+/** Thrown by a handler; the runtime turns it into an outcome, an audit row and no state change. */
+class Refusal extends Error {
+  constructor(
+    readonly outcome: Outcome,
+    message: string,
+  ) {
+    super(message);
   }
 }
 
-const deny = (code: DenialCode, policy: string, message: string): never => {
-  throw new DenialError({ code, policy, message });
+const refuse = (outcome: Outcome, message: string): never => {
+  throw new Refusal(outcome, message);
 };
 
-/** Approval tier is derived from the case, so a reviewer cannot pick a cheaper path. */
-export function resolveTier(capability: CapabilityName, target: CaseDetail): ApprovalTier {
-  if (capability === 'kyc.case.sar.file') return 'dual_compliance';
-  if (capability !== 'kyc.case.approve' && capability !== 'kyc.case.reject') return 'none';
+/**
+ * Which scope a second human must hold, derived from the case rather than chosen by the caller.
+ *
+ * This is what the kernel's `ApprovalRule` cannot express yet: `never | always | above_amount` has
+ * no way to say "depends on the screening hits", so the rule lives here until the registry grows a
+ * data-derived mode.
+ */
+export function resolveApprover(capability: CapabilityName, target: CaseDetail): ApproverScope | null {
+  if (capability === 'kyc.case.sar.file') return 'kyc:sar';
+  if (capability !== 'kyc.case.approve' && capability !== 'kyc.case.reject') return null;
   const sanctions = target.screeningHits.some(
     (hit) => hit.resolution === 'unresolved' && ['OFAC_SDN', 'EU_CONSOLIDATED', 'UK_HMT'].includes(hit.list),
   );
-  if (sanctions) return 'dual_compliance';
-  if (target.riskBand === 'high' || target.unresolvedHits > 0) return 'dual_lead';
-  return 'none';
+  if (sanctions) return 'kyc:sar';
+  if (target.riskBand === 'high' || target.unresolvedHits > 0) return 'kyc:decide';
+  return null;
 }
 
 /** Why the runtime will hold this call, phrased from the case rather than from the button. */
 export function approvalReason(capability: CapabilityName, target: CaseDetail): string | null {
-  const tier = resolveTier(capability, target);
-  if (tier === 'none') return null;
+  const approver = resolveApprover(capability, target);
+  if (!approver) return null;
   if (capability === 'kyc.case.sar.file') {
-    return 'Filing a SAR is irreversible: a compliance officer other than you must always approve it.';
+    return 'Filing a SAR is irreversible: a holder of kyc:sar other than you must always approve it.';
   }
-  if (tier === 'dual_compliance') {
-    return 'Unresolved sanctions exposure: a compliance officer must approve before this takes effect.';
+  if (approver === 'kyc:sar') {
+    return 'Unresolved sanctions exposure: a holder of kyc:sar must approve before this takes effect.';
   }
   return target.riskBand === 'high'
-    ? 'High-risk case: a second reviewer holding kyc_lead must approve before this takes effect.'
-    : 'Unresolved screening hit: a second reviewer holding kyc_lead must approve before this takes effect.';
+    ? 'High-risk case: a second human holding kyc:decide must approve before this takes effect.'
+    : 'Unresolved screening hit: a second human holding kyc:decide must approve before this takes effect.';
 }
 
 const RATE_WINDOW_MS = 3_600_000;
 
-export class MockKernel implements CapabilityClient {
+interface HeldApproval extends KycApproval {
+  /** The invocation the runtime replays if this is approved. Apps never see it. */
+  held: { capability: CapabilityName; input: unknown; idempotencyKey: string };
+}
+
+export class MockKernel implements KycPlatformClient {
   readonly kind = 'mock';
   private actor: Actor;
+  private readonly directory: Actor[];
   private cases: CaseDetail[] = buildCases();
-  private approvals: ApprovalRequest[] = [];
-  private audit: AuditEntry[] = [];
+  private held: HeldApproval[] = [];
+  private auditLog: AuditEntry[] = [];
   private invocations: { capability: CapabilityName; userId: string; at: number }[] = [];
   private idempotency = new Map<string, unknown>();
   private listeners = new Set<() => void>();
 
-  constructor(actor: Actor) {
-    this.actor = actor;
+  constructor(directory: Actor[]) {
+    this.directory = directory;
+    this.actor = directory[0] as Actor;
   }
 
   setActor(actor: Actor): void {
@@ -97,258 +110,420 @@ export class MockKernel implements CapabilityClient {
     this.listeners.forEach((listener) => listener());
   }
 
-  async invoke<N extends CapabilityName>(
-    capability: N,
-    input: CapabilityInput<N>,
-    options?: InvokeOptions,
-  ): Promise<CapabilityResult<N>> {
-    const policy = CAPABILITY_POLICIES[capability];
+  async users(): Promise<Actor[]> {
+    return this.directory.map((actor) => ({ ...actor }));
+  }
+
+  async capabilities(): Promise<CapabilityDescriptor[]> {
+    return Object.values(CAPABILITY_DESCRIPTORS).map((descriptor) => ({ ...descriptor }));
+  }
+
+  async approvals(status?: string): Promise<KycApproval[]> {
+    // The API host answers 403 here, so the mock refuses the same way: a reviewer without
+    // `approvals:read` must not see an empty inbox and conclude there is nothing pending.
+    this.requirePlatformScope('approvals:read');
+    return this.held
+      .filter((approval) => !status || approval.status === status)
+      .map(({ held: _held, ...approval }) => approval);
+  }
+
+  async audit(limit = 100): Promise<AuditEntry[]> {
+    this.requirePlatformScope('audit:read');
+    return this.auditLog.slice(0, limit).map((entry) => ({ ...entry }));
+  }
+
+  private requirePlatformScope(scope: string): void {
+    if (!this.actor.scopes.includes(scope)) {
+      throw new Error(`${this.actor.role} lacks scope ${scope}`);
+    }
+  }
+
+  // ---------------------------------------------------------------- invoke
+
+  async invoke<T>(capability: string, input: unknown = {}, idempotencyKey?: string): Promise<InvokeResult<T>> {
+    const started = Date.now();
+    const name = capability as CapabilityName;
+    const descriptor = CAPABILITY_DESCRIPTORS[name];
+
+    if (!descriptor) {
+      return this.fail(name, 'unknown', 'not_found', `unknown capability: ${capability}`, input, started);
+    }
+
+    if (!this.actor.scopes.includes(descriptor.policy.scope)) {
+      return this.fail(
+        name,
+        descriptor.kind,
+        'denied_scope',
+        `${this.actor.role} lacks scope ${descriptor.policy.scope} required by ${name}`,
+        input,
+        started,
+      );
+    }
+
+    if (descriptor.kind === 'write') {
+      if (!idempotencyKey) {
+        return this.fail(
+          name,
+          'write',
+          'invalid_input',
+          `${name} is a write capability and requires an idempotency key`,
+          input,
+          started,
+        );
+      }
+      const limit = (descriptor.policy as KycWritePolicy).limits.maxPerHour;
+      if (this.recentCount(name) >= limit) {
+        return this.fail(
+          name,
+          'write',
+          'rate_limited',
+          `${this.actor.name} reached the ${limit}/hour limit for ${name}`,
+          input,
+          started,
+        );
+      }
+    }
+
     try {
-      // 1. authz
-      if (!this.actor.scopes.includes(policy.scope)) {
-        deny(
-          'forbidden_scope',
-          `scope ${policy.scope}`,
-          `${this.actor.role} does not hold ${policy.scope}; ${capability} refused before execution.`,
-        );
-      }
-
-      // 2. limits
-      this.enforceLimit(capability);
-
-      // 3. idempotency
-      const key = options?.idempotencyKey;
-      if (key && this.idempotency.has(key)) {
-        const cached = this.idempotency.get(key) as CapabilityResult<N>;
-        this.record(capability, 'executed', 'info', 'idempotent replay', this.targetOf(input), 'Replayed cached result.');
-        return cached;
-      }
-
-      // 4. approval + 5. execute
-      const result = this.execute(capability, input);
-
-      if (key) this.idempotency.set(key, result);
+      const result = await this.run<T>(name, input, idempotencyKey, started);
       this.emit();
-      return result as CapabilityResult<N>;
+      return result;
     } catch (error) {
-      if (error instanceof DenialError) {
-        const auditId = this.record(
-          capability,
-          'denied',
-          'notice',
-          error.denial.policy,
-          this.targetOf(input),
-          error.denial.message,
-        );
+      if (error instanceof Refusal) {
+        const result = this.fail<T>(name, descriptor.kind, error.outcome, error.message, input, started);
         this.emit();
-        return { status: 'denied', auditId, code: error.denial.code, message: error.denial.message };
+        return result;
       }
       throw error;
     }
   }
 
-  private targetOf(input: unknown): string {
-    if (input && typeof input === 'object' && 'caseId' in input) {
-      const caseId = (input as { caseId: string }).caseId;
-      return this.cases.find((item) => item.id === caseId)?.reference ?? caseId;
+  private async run<T>(
+    name: CapabilityName,
+    input: unknown,
+    idempotencyKey: string | undefined,
+    started: number,
+  ): Promise<InvokeResult<T>> {
+    const descriptor = CAPABILITY_DESCRIPTORS[name];
+    this.invocations.push({ capability: name, userId: this.actor.id, at: Date.now() });
+
+    if (idempotencyKey && this.idempotency.has(idempotencyKey)) {
+      const stored = this.idempotency.get(idempotencyKey);
+      this.record(name, descriptor.kind, 'replayed', input, started, { error: null });
+      return { outcome: 'replayed', result: stored as T };
     }
-    return '—';
+
+    if (this.isCaseInput(input)) {
+      const target = this.requireCase(input.caseId);
+      this.validate(name, input);
+      const approver = resolveApprover(name, target);
+      if (approver) return this.hold<T>(name, input, target, approver, idempotencyKey ?? nextId('idem'), started);
+    }
+
+    const result = this.execute(name, input);
+    if (idempotencyKey) this.idempotency.set(idempotencyKey, result);
+    return { outcome: 'ok', result: result as T };
   }
 
-  private enforceLimit(capability: CapabilityName) {
+  /** Executes a held invocation as its requester, the way `decideApproval` replays one. */
+  private replay(approval: HeldApproval): InvokeResult<unknown> {
+    const requester = this.directory.find((actor) => actor.id === approval.requestedBy);
+    const acting = this.actor;
+    if (requester) this.actor = requester;
+    try {
+      const result = this.execute(approval.held.capability, approval.held.input, approval.id);
+      this.idempotency.set(approval.held.idempotencyKey, result);
+      return { outcome: 'ok', result };
+    } catch (error) {
+      if (error instanceof Refusal) return { outcome: error.outcome, message: error.message };
+      throw error;
+    } finally {
+      this.actor = acting;
+    }
+  }
+
+  // ------------------------------------------------------------- approvals
+
+  async decide(approvalId: string, decision: 'approve' | 'reject'): Promise<InvokeResult<unknown>> {
+    const started = Date.now();
+    const approval = this.held.find((item) => item.id === approvalId);
+
+    const auditDecision = (outcome: Outcome, message?: string) => {
+      this.record('approvals.decide', 'write', outcome, { approvalId, decision }, started, {
+        error: outcome === 'ok' ? null : (message ?? null),
+        approvalId,
+      });
+      this.emit();
+      return { outcome, message } as InvokeResult<unknown>;
+    };
+
+    if (!this.actor.scopes.includes('approvals:decide')) {
+      return auditDecision('denied_scope', `${this.actor.role} cannot decide approvals`);
+    }
+    if (!approval) return auditDecision('not_found', `unknown approval: ${approvalId}`);
+    if (approval.status !== 'pending') {
+      return auditDecision('error', `approval ${approvalId} is already ${approval.status}`);
+    }
+    if (approval.requestedBy === this.actor.id) {
+      return auditDecision('denied_scope', 'an approver may not approve their own request');
+    }
+    if (!this.actor.scopes.includes(approval.approverScope)) {
+      return auditDecision(
+        'denied_scope',
+        `deciding ${approval.capability} needs ${approval.approverScope}, which ${this.actor.role} does not hold`,
+      );
+    }
+
+    approval.decidedBy = this.actor.id;
+    approval.decidedAt = new Date().toISOString();
+
+    if (decision === 'reject') {
+      approval.status = 'rejected';
+      const target = this.requireCase(approval.caseId);
+      target.status = 'pending_review';
+      target.revision += 1;
+      this.appendEvent(target, {
+        actor: this.actor.name,
+        summary: `Rejected the request to ${approval.summary.toLowerCase()}.`,
+        capability: approval.capability as CapabilityName,
+      });
+      return auditDecision('ok');
+    }
+
+    approval.status = 'approved';
+    auditDecision('ok');
+    const result = this.replay(approval);
+    approval.status = result.outcome === 'ok' || result.outcome === 'replayed' ? 'executed' : 'failed';
+    this.emit();
+    return result;
+  }
+
+  // ------------------------------------------------------------- internals
+
+  private hold<T>(
+    name: CapabilityName,
+    input: { caseId: string },
+    target: CaseDetail,
+    approverScope: ApproverScope,
+    idempotencyKey: string,
+    started: number,
+  ): InvokeResult<T> {
+    const approvalId = nextId('apr');
+    const summary =
+      name === 'kyc.case.approve'
+        ? `Approve onboarding for ${target.applicantName}`
+        : name === 'kyc.case.reject'
+          ? `Reject ${target.applicantName}`
+          : `File SAR for ${target.applicantName}`;
+
+    this.held = [
+      {
+        id: approvalId,
+        capability: name,
+        input: input as Record<string, unknown>,
+        amountCents: null,
+        reason: approvalReason(name, target) ?? 'held for a second human',
+        requestedBy: this.actor.id,
+        requestedByName: this.actor.name,
+        status: 'pending',
+        decidedBy: null,
+        decidedAt: null,
+        createdAt: new Date().toISOString(),
+        approverScope,
+        caseId: target.id,
+        caseReference: target.reference,
+        applicantName: target.applicantName,
+        summary,
+        held: { capability: name, input, idempotencyKey },
+      },
+      ...this.held,
+    ];
+
+    target.status = 'awaiting_approval';
+    target.revision += 1;
+    this.record(name, 'write', 'pending_approval', input, started, { approvalId, error: null });
+    this.appendEvent(target, {
+      actor: this.actor.name,
+      summary: `${summary} — held for a holder of ${approverScope}.`,
+      capability: name,
+    });
+
+    return {
+      outcome: 'pending_approval',
+      approvalId,
+      message: `held for approval by someone with ${approverScope}`,
+    };
+  }
+
+  private recentCount(name: CapabilityName): number {
     const at = Date.now();
     this.invocations = this.invocations.filter((entry) => at - entry.at < RATE_WINDOW_MS);
-    if (capability === 'kyc.case.pii.reveal') {
-      const used = this.invocations.filter(
-        (entry) => entry.capability === capability && entry.userId === this.actor.userId,
-      ).length;
-      if (used >= 20) {
-        deny('limit_exceeded', '20/hour/user', 'PII reveal budget exhausted for this hour.');
-      }
-    }
-    this.invocations.push({ capability, userId: this.actor.userId, at });
+    return this.invocations.filter((entry) => entry.capability === name && entry.userId === this.actor.id).length;
+  }
+
+  private isCaseInput(input: unknown): input is { caseId: string } {
+    return Boolean(input && typeof input === 'object' && 'caseId' in input);
   }
 
   private requireCase(caseId: string): CaseDetail {
     const found = this.cases.find((item) => item.id === caseId);
-    if (!found) deny('not_found', 'existence', `Case ${caseId} does not exist.`);
+    if (!found) refuse('not_found', `unknown case: ${caseId}`);
     return found as CaseDetail;
   }
 
   private requireFreshCase(caseId: string, revision: number): CaseDetail {
     const target = this.requireCase(caseId);
     if (target.revision !== revision) {
-      deny(
-        'stale_revision',
-        'optimistic concurrency',
-        `Case moved on (you saw r${revision}, current is r${target.revision}). Reload before deciding.`,
+      refuse(
+        'error',
+        `case moved on (you saw r${revision}, current is r${target.revision}); reload before deciding`,
       );
     }
     return target;
   }
 
+  /** The schema half of the kernel's validation step, hand-written until the Zod registry has KYC. */
+  private validate(name: CapabilityName, input: unknown): void {
+    if (name === 'kyc.case.pii.reveal') {
+      const { justification } = input as CapabilityInput<'kyc.case.pii.reveal'>;
+      if (justification.trim().length < 10) {
+        refuse('invalid_input', 'justification: must contain at least 10 characters');
+      }
+    }
+    if (name === 'kyc.case.approve' || name === 'kyc.case.reject') {
+      const { note } = input as CapabilityInput<'kyc.case.reject'>;
+      if (note.trim().length < 20) {
+        refuse('invalid_input', 'note: a decision rationale must contain at least 20 characters');
+      }
+    }
+    if (name === 'kyc.case.sar.file') {
+      const { narrative } = input as CapabilityInput<'kyc.case.sar.file'>;
+      if (narrative.trim().length < 40) {
+        refuse('invalid_input', 'narrative: a SAR narrative must contain at least 40 characters');
+      }
+    }
+    if (name === 'kyc.case.requestInfo') {
+      const { items } = input as CapabilityInput<'kyc.case.requestInfo'>;
+      if (items.length === 0) refuse('invalid_input', 'items: select at least one item to request');
+    }
+  }
+
   private appendEvent(target: CaseDetail, event: Omit<CaseEvent, 'id' | 'at'>) {
-    target.timeline = [
-      ...target.timeline,
-      { id: nextId('ev'), at: new Date().toISOString(), ...event },
-    ];
+    target.timeline = [...target.timeline, { id: nextId('ev'), at: new Date().toISOString(), ...event }];
+  }
+
+  private fail<T>(
+    name: string,
+    kind: string,
+    outcome: Outcome,
+    message: string,
+    input: unknown,
+    started: number,
+  ): InvokeResult<T> {
+    this.record(name, kind, outcome, input, started, { error: message });
+    return { outcome, message };
   }
 
   private record(
-    capability: CapabilityName,
-    outcome: AuditEntry['outcome'],
-    severity: AuditEntry['severity'],
-    policy: string,
-    target: string,
-    detail: string,
-  ): string {
-    const entry: AuditEntry = {
-      id: nextId('aud'),
-      at: new Date().toISOString(),
-      actor: this.actor.displayName,
-      role: this.actor.role,
-      capability,
-      outcome,
-      severity,
-      policy,
-      target,
-      detail,
-    };
-    this.audit = [entry, ...this.audit];
-    return entry.id;
+    capability: string,
+    kind: string,
+    outcome: Outcome,
+    input: unknown,
+    started: number,
+    extra: { error?: string | null; approvalId?: string } = {},
+  ): void {
+    this.auditLog = [
+      {
+        id: ++counter,
+        at: new Date().toISOString(),
+        actorId: this.actor.id,
+        actorRole: this.actor.role,
+        capability,
+        kind,
+        outcome,
+        amountCents: null,
+        approvalId: extra.approvalId ?? null,
+        error: extra.error ?? null,
+        durationMs: Math.max(1, Date.now() - started),
+        input,
+      },
+      ...this.auditLog,
+    ];
   }
 
-  private requestApproval(
-    capability: CapabilityName,
-    target: CaseDetail,
-    tier: Exclude<ApprovalTier, 'none'>,
-    reason: string,
-    summary: string,
-  ): CapabilityResult<CapabilityName> {
-    const request: ApprovalRequest = {
-      id: nextId('apr'),
-      capability,
-      caseId: target.id,
-      caseReference: target.reference,
-      applicantName: target.applicantName,
-      requestedBy: this.actor.displayName,
-      requestedById: this.actor.userId,
-      requestedAt: new Date().toISOString(),
-      tier,
-      reason,
-      summary,
-      status: 'pending',
-    };
-    this.approvals = [request, ...this.approvals];
-    target.status = 'awaiting_approval';
-    target.revision += 1;
-    const auditId = this.record(capability, 'pending_approval', 'high', `approval:${tier}`, target.reference, summary);
-    this.appendEvent(target, {
-      actor: this.actor.displayName,
-      summary: `${summary} — held for ${tier === 'dual_compliance' ? 'compliance officer' : 'lead'} approval.`,
+  // -------------------------------------------------------------- handlers
 
-      capability,
-      auditId,
-    });
-    return {
-      status: 'pending_approval',
-      auditId,
-      approvalRequestId: request.id,
-      message: approvalReason(capability, target) ?? 'Held for a second human.',
+  private execute(name: CapabilityName, rawInput: unknown, approvalId?: string): unknown {
+    const started = Date.now();
+    const kind = CAPABILITY_DESCRIPTORS[name].kind;
+    const done = (result: unknown) => {
+      this.record(name, kind, 'ok', rawInput, started, { approvalId, error: null });
+      return result;
     };
-  }
 
-  private execute(capability: CapabilityName, rawInput: unknown): CapabilityResult<CapabilityName> {
-    switch (capability) {
+    switch (name) {
       case 'kyc.cases.list': {
         const input = rawInput as CapabilityInput<'kyc.cases.list'>;
         const query = input.query?.trim().toLowerCase() ?? '';
         const cases = this.cases.filter((item) => {
           if (input.status && input.status !== 'all' && item.status !== input.status) return false;
           if (input.riskBand && input.riskBand !== 'all' && item.riskBand !== input.riskBand) return false;
-          if (input.assignment === 'mine' && item.assignedTo !== this.actor.userId) return false;
+          if (input.assignment === 'mine' && item.assignedTo !== this.actor.id) return false;
           if (input.assignment === 'unassigned' && item.assignedTo !== null) return false;
           if (query && !`${item.reference} ${item.applicantName} ${item.country}`.toLowerCase().includes(query)) {
             return false;
           }
           return true;
         });
-        const auditId = this.record(capability, 'executed', 'info', 'read', '—', `Listed ${cases.length} cases.`);
-        return { status: 'ok', auditId, output: { cases: cases.map(summarize) } };
+        return done({ cases: cases.map(summarize) });
       }
 
       case 'kyc.cases.get': {
         const input = rawInput as CapabilityInput<'kyc.cases.get'>;
-        const target = this.requireCase(input.caseId);
-        const auditId = this.record(capability, 'executed', 'info', 'read', target.reference, 'Opened case.');
-        return { status: 'ok', auditId, output: { case: clone(target) } };
+        return done({ case: clone(this.requireCase(input.caseId)) });
       }
 
       case 'kyc.case.pii.reveal': {
         const input = rawInput as CapabilityInput<'kyc.case.pii.reveal'>;
-        if (input.justification.trim().length < 10) {
-          deny('invalid_input', 'justification required', 'Provide at least 10 characters of justification.');
-        }
         const target = this.requireCase(input.caseId);
         const identity = unmaskedIdentity(target.id);
-        const used = this.invocations.filter(
-          (entry) => entry.capability === capability && entry.userId === this.actor.userId,
-        ).length;
-        const auditId = this.record(
-          capability,
-          'executed',
-          'high',
-          '20/hour/user',
-          target.reference,
-          `Unmasked applicant PII. Justification: "${input.justification.trim()}"`,
-        );
+        const used = this.recentCount(name);
+        const result = done({ identity, revealsRemaining: Math.max(0, 20 - used) });
         this.appendEvent(target, {
-          actor: this.actor.displayName,
-          summary: 'Revealed applicant PII.',
-          capability,
-          auditId,
+          actor: this.actor.name,
+          summary: `Revealed applicant PII. Justification: "${input.justification.trim()}"`,
+          capability: name,
         });
-        return { status: 'ok', auditId, output: { identity, revealsRemaining: Math.max(0, 20 - used) } };
+        return result;
       }
 
       case 'kyc.case.claim': {
         const input = rawInput as CapabilityInput<'kyc.case.claim'>;
         const target = this.requireFreshCase(input.caseId, input.revision);
-        if (target.assignedTo && target.assignedTo !== this.actor.userId) {
-          deny('limit_exceeded', '1 open claim per case', 'Another reviewer already owns this case.');
+        if (target.assignedTo && target.assignedTo !== this.actor.id) {
+          refuse('error', 'another reviewer already owns this case');
         }
-        target.assignedTo = this.actor.userId;
+        target.assignedTo = this.actor.id;
         target.revision += 1;
-        const auditId = this.record(capability, 'executed', 'info', 'write', target.reference, 'Claimed case.');
-        this.appendEvent(target, { actor: this.actor.displayName, summary: 'Claimed the case.', capability, auditId });
-        return { status: 'ok', auditId, output: { case: clone(target) } };
+        this.appendEvent(target, { actor: this.actor.name, summary: 'Claimed the case.', capability: name });
+        return done({ case: clone(target) });
       }
 
       case 'kyc.case.requestInfo': {
         const input = rawInput as CapabilityInput<'kyc.case.requestInfo'>;
         const target = this.requireFreshCase(input.caseId, input.revision);
-        if (input.items.length === 0) deny('invalid_input', 'schema', 'Select at least one item to request.');
-        const priorRequests = target.timeline.filter((event) => event.capability === 'kyc.case.requestInfo').length;
+        const priorRequests = target.timeline.filter((event) => event.capability === name).length;
         if (priorRequests >= 3) {
-          deny('limit_exceeded', '3 per case', 'Information has already been requested three times on this case.');
+          refuse('rate_limited', 'information has already been requested three times on this case');
         }
         target.status = 'info_requested';
         target.revision += 1;
-        const auditId = this.record(
-          capability,
-          'executed',
-          'info',
-          'write',
-          target.reference,
-          `Requested: ${input.items.join(', ')}`,
-        );
         this.appendEvent(target, {
-          actor: this.actor.displayName,
+          actor: this.actor.name,
           summary: `Requested more information: ${input.items.join(', ')}.`,
-          capability,
-          auditId,
+          capability: name,
         });
-        return { status: 'ok', auditId, output: { case: clone(target) } };
+        return done({ case: clone(target) });
       }
 
       case 'kyc.case.escalate': {
@@ -356,120 +531,47 @@ export class MockKernel implements CapabilityClient {
         const target = this.requireFreshCase(input.caseId, input.revision);
         target.status = 'escalated';
         target.revision += 1;
-        const auditId = this.record(capability, 'executed', 'notice', 'write', target.reference, input.note);
         this.appendEvent(target, {
-          actor: this.actor.displayName,
+          actor: this.actor.name,
           summary: `Escalated to enhanced due diligence: ${input.note}`,
-          capability,
-          auditId,
+          capability: name,
         });
-        return { status: 'ok', auditId, output: { case: clone(target) } };
+        return done({ case: clone(target) });
       }
 
       case 'kyc.case.approve':
       case 'kyc.case.reject': {
         const input = rawInput as CapabilityInput<'kyc.case.reject'>;
-        const target = this.requireFreshCase(input.caseId, input.revision);
-        if (input.note.trim().length < 20) {
-          deny('invalid_input', 'note ≥ 20 chars', 'Decisions need a written rationale of at least 20 characters.');
-        }
-        const verb = capability === 'kyc.case.approve' ? 'Approve' : 'Reject';
-        const summary =
-          capability === 'kyc.case.approve'
-            ? `Approve onboarding for ${target.applicantName}`
-            : `Reject ${target.applicantName} (${input.reasonCode})`;
-        const tier = resolveTier(capability, target);
-        if (tier !== 'none') {
-          return this.requestApproval(capability, target, tier, input.note.trim(), summary);
-        }
-        target.status = capability === 'kyc.case.approve' ? 'approved' : 'rejected';
+        const target = approvalId
+          ? this.requireCase(input.caseId)
+          : this.requireFreshCase(input.caseId, input.revision);
+        target.status = name === 'kyc.case.approve' ? 'approved' : 'rejected';
         target.revision += 1;
-        const auditId = this.record(capability, 'executed', 'high', 'approval:none', target.reference, input.note.trim());
         this.appendEvent(target, {
-          actor: this.actor.displayName,
-          summary: `${verb}d: ${input.note.trim()}`,
-          capability,
-          auditId,
+          actor: this.actor.name,
+          summary: `${name === 'kyc.case.approve' ? 'Approved' : 'Rejected'}: ${input.note.trim()}`,
+          capability: name,
         });
-        return { status: 'ok', auditId, output: { case: clone(target) } };
+        return done({ case: clone(target) });
       }
 
       case 'kyc.case.sar.file': {
         const input = rawInput as CapabilityInput<'kyc.case.sar.file'>;
-        const target = this.requireFreshCase(input.caseId, input.revision);
-        if (input.narrative.trim().length < 40) {
-          deny('invalid_input', 'narrative ≥ 40 chars', 'A SAR narrative must be at least 40 characters.');
-        }
-        return this.requestApproval(
-          capability,
-          target,
-          'dual_compliance',
-          input.narrative.trim(),
-          `File SAR for ${target.applicantName}`,
-        );
-      }
-
-      case 'kyc.approvals.list': {
-        const auditId = this.record(capability, 'executed', 'info', 'read', '—', 'Listed approval requests.');
-        return { status: 'ok', auditId, output: { requests: this.approvals.map((item) => ({ ...item })) } };
-      }
-
-      case 'kyc.approvals.decide': {
-        const input = rawInput as CapabilityInput<'kyc.approvals.decide'>;
-        const request = this.approvals.find((item) => item.id === input.requestId);
-        if (!request) deny('not_found', 'existence', 'Approval request not found.');
-        const found = request as ApprovalRequest;
-        if (found.status !== 'pending') deny('invalid_input', 'state', 'This request was already decided.');
-        if (found.requestedById === this.actor.userId) {
-          deny('self_approval', 'four-eyes', 'You cannot approve a request you raised.');
-        }
-        if (found.tier === 'dual_compliance' && this.actor.role !== 'compliance_officer') {
-          deny(
-            'forbidden_scope',
-            'approval:dual_compliance',
-            'Sanctions and SAR approvals require a compliance officer.',
-          );
-        }
-        found.status = input.decision === 'approve' ? 'approved' : 'denied';
-        found.decidedBy = this.actor.displayName;
-        found.decidedAt = new Date().toISOString();
-        const target = this.requireCase(found.caseId);
-        if (input.decision === 'approve') {
-          if (found.capability === 'kyc.case.approve') target.status = 'approved';
-          else if (found.capability === 'kyc.case.reject') target.status = 'rejected';
-          else target.status = 'escalated';
-        } else {
-          target.status = 'pending_review';
-        }
+        const target = approvalId
+          ? this.requireCase(input.caseId)
+          : this.requireFreshCase(input.caseId, input.revision);
+        target.status = 'escalated';
         target.revision += 1;
-        const auditId = this.record(
-          found.capability,
-          input.decision === 'approve' ? 'executed' : 'denied',
-          'high',
-          `approval:${found.tier}`,
-          target.reference,
-          `${input.decision === 'approve' ? 'Approved' : 'Denied'} request from ${found.requestedBy}: ${input.note}`,
-        );
         this.appendEvent(target, {
-          actor: this.actor.displayName,
-          summary: `${input.decision === 'approve' ? 'Approved' : 'Denied'} ${found.summary}. ${input.note}`,
-          capability: found.capability,
-          auditId,
+          actor: this.actor.name,
+          summary: `Filed a suspicious activity report: ${input.narrative.trim()}`,
+          capability: name,
         });
-        return { status: 'ok', auditId, output: { request: { ...found } } };
-      }
-
-      case 'kyc.audit.list': {
-        const input = rawInput as CapabilityInput<'kyc.audit.list'>;
-        return {
-          status: 'ok',
-          auditId: 'aud_read',
-          output: { entries: this.audit.slice(0, input.limit ?? 100) },
-        };
+        return done({ case: clone(target) });
       }
 
       default:
-        return deny('not_found', 'registry', `Capability ${capability} is not registered.`);
+        return refuse('not_found', `unknown capability: ${name}`);
     }
   }
 }

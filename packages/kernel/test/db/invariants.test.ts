@@ -14,7 +14,7 @@ import { after, before, beforeEach, test } from "node:test";
 import { z } from "zod";
 import { migrate, pool, resetAndSeed, withClient, withTransaction } from "@platform/db";
 import type { PgClient } from "@platform/db";
-import { defineWrite, invoke } from "../../src/index.ts";
+import { decideApproval, defineWrite, invoke } from "../../src/index.ts";
 import { syncRegistry } from "../../src/audit.ts";
 import { resolvePrincipal } from "../../src/auth.ts";
 import { clearHalt as clearCapabilityHalt, reconcile } from "../../src/reconciler.ts";
@@ -332,4 +332,59 @@ test("refunds.issue.is_idempotent: one key that produced two effects is caught",
     violations.map((violation) => violation.subject),
     ["replayed-key"],
   );
+});
+
+test("an approval is decided by someone holding the capability's approverScope", async () => {
+  // `approvals:decide` says you may decide approvals. The capability says which
+  // ones: this one is only clearable by a holder of `flags:write`, which the
+  // supervisor does not have and the admin does.
+  defineWrite({
+    name: "flags.sensitiveSet",
+    summary: "test-only capability whose approval needs more than the generic scope",
+    input: z.object({ key: z.string() }),
+    policy: {
+      scope: "flags:read",
+      idempotent: true,
+      limits: { maxAmountCents: null, maxPerHour: 10 },
+      approval: { mode: "always" },
+      approverScope: "flags:write",
+    },
+    handler: async (input) => ({ key: input.key }),
+  });
+  await syncRegistry();
+
+  const requested = await invoke({
+    capability: "flags.sensitiveSet",
+    input: { key: "checkout.v2" },
+    principal: agent,
+    idempotencyKey: randomUUID(),
+  });
+  assert.equal(requested.outcome, "pending_approval");
+  const approvalId = requested.approvalId;
+  assert.ok(approvalId);
+
+  const [supervisor, admin] = await withClient(async (client) => [
+    await resolvePrincipal(client, "u_supervisor"),
+    await resolvePrincipal(client, "u_admin"),
+  ]);
+  assert.ok(supervisor);
+  assert.ok(admin);
+  assert.ok(supervisor.scopes.includes("approvals:decide"));
+  assert.ok(!supervisor.scopes.includes("flags:write"));
+
+  const refused = await decideApproval({ approvalId, decision: "approve", approver: supervisor });
+  assert.equal(refused.outcome, "denied_scope");
+  assert.match(refused.message ?? "", /needs flags:write/);
+
+  const refusalAudited = await withClient((client) =>
+    client.query("select outcome from audit_log where capability = 'approvals.decide'"),
+  );
+  assert.deepEqual(
+    refusalAudited.rows.map((row) => row.outcome),
+    ["denied_scope"],
+    "the refusal is on the record",
+  );
+
+  const cleared = await decideApproval({ approvalId, decision: "approve", approver: admin });
+  assert.equal(cleared.outcome, "ok");
 });

@@ -10,7 +10,7 @@ person's approval. The runtime enforces that declaration; the app cannot bypass 
 app never touches the database.
 
 ```
-apps/console/src/apps    a screen, written by Devin
+apps/<app-name>          a screen, written by Devin
                          invoke("refunds.issue", { paymentId, amountCents })
 ─────────────────────────────────────────────────────────  trust boundary
 packages/capabilities    capability = declared policy + handler, human-reviewed
@@ -28,12 +28,12 @@ the ceiling, unapproved, out of scope, replayed — is refused in the same place
 ```bash
 npm install
 npm run setup     # Postgres in Docker, migrate, seed
-npm run dev       # api on :8080, console on :5173
+npm run dev       # api :8080 · console :5173 · refunds :5175 · review queue :5176 · kyc :5174
 ```
 
-Open <http://localhost:5173>. There is no login; the **acting as** switcher in the header picks
-the principal (Avery, agent · Sam, supervisor · Robin, admin) and the API reads it from the
-`x-platform-user` header.
+Open the console at <http://localhost:5173>; its **Apps** tab links to each app. There is no
+login; the **acting as** switcher in the header picks the principal (Avery, agent · Sam,
+supervisor · Robin, admin) and the API reads it from the `x-platform-user` header.
 
 ## Drive it
 
@@ -106,7 +106,7 @@ Why three: see [ADR 0006](docs/adr/0006-invariants-are-enforced-three-times.md).
 
 |  | Tier 1 — build an app | Tier 2 — extend the platform |
 | --- | --- | --- |
-| May touch | `apps/console/src/apps/*`, docs | kernel, invariants, migrations, capabilities, SDK |
+| May touch | `apps/<app-name>/*`, docs | kernel, invariants, migrations, capabilities, SDK |
 | Uses | existing capabilities and rules | defines new ones |
 | Review | does the screen do the job? | what can no longer be proved, and what now can? |
 | Also required | — | adversarial DB tests, a change record, human sign-off |
@@ -123,8 +123,38 @@ neither.
 | `packages/capabilities` | The reviewed surface: refunds, feature flags, review queue |
 | `packages/db` | Migrations, seed, and the `DataSource` handlers are bound to |
 | `packages/sdk` | The only thing an app may import |
+| `packages/app-kit` | What an app gets besides the SDK: bound client, identity switcher, outcome banner, stylesheet |
 | `apps/api` | Fastify host: identity, invocation, approvals, audit, invariants |
-| `apps/console` | Shell; `src/apps/*` are apps, `src/platform/*` are platform views |
+| `apps/console` | Platform surface: approvals, audit log, capability registry, invariants, app launcher |
+| `apps/refunds` | Refunds — an app |
+| `apps/review-queue` | Customer review queue — an app |
+| `apps/kyc-review` | KYC review queue — an app |
+
+`packages/*` is the platform: the trust boundary, the data layer, and the only surfaces an app may
+import (`@platform/sdk`, `@platform/app-kit`). `apps/*` is everything above it, one folder per
+deployable. The console is not an app either — it is the platform's own screens plus a launcher.
+
+**A new app is a new folder.** Copy the shape of `apps/review-queue`: a `package.json`, an
+`index.html`, a `vite.config.ts` with its own port, and `src/`. Add a `dev:<name>` script at the
+root, add a row to the launcher in `apps/console/src/Launcher.tsx`, and that is the whole
+ceremony — the boundary check picks up every folder under `apps/` automatically, so the new app is
+held to `@platform/sdk` from its first commit without anyone remembering to list it.
+
+## Scripts
+
+| Command | Purpose |
+| --- | --- |
+| `npm run setup` | Postgres up, migrate, reset + seed |
+| `npm run dev` | API, console and every app together |
+| `npm run dev:refunds` | Just the refunds app, on :5175 |
+| `npm run dev:queue` | Just the customer review queue, on :5176 |
+| `npm run dev:kyc` | Just the KYC review queue, on :5174 |
+| `npm run db:reset` | Wipe transactional state, re-seed |
+| `npm run typecheck` | `tsc --noEmit` across the workspace |
+| `npm run lint` | Boundary check (apps may not import the db, kernel, capabilities, or call `fetch`) and tier check (a platform edit needs a change record) |
+| `npm test` | Kernel policy-declaration and invariant-derivation tests, including that every derived invariant is attacked by a database test |
+| `npm run test:db` | The invariants, attacked against a real database |
+| `npm run reconcile` | One-shot invariant check; exits non-zero on a violation |
 
 ## Documentation
 

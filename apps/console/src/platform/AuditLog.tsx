@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AuditEntry } from "@platform/sdk";
-import { platform } from "../client.ts";
-import { money, when } from "../format.ts";
-import { OutcomeBadge } from "../Outcome.tsx";
+import { money, OutcomeBadge, platform, when } from "@platform/app-kit";
 
 export function AuditLog({ actorId }: { actorId: string }) {
   const [entries, setEntries] = useState<AuditEntry[]>([]);

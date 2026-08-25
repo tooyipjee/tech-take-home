@@ -7,7 +7,9 @@ name: apps
 on:
   pull_request:
     paths:
-      - "apps/console/**"
+      - "apps/**"
+      - "!apps/api/**"
+      - "packages/app-kit/**"
       - ".github/workflows/apps.yml"
 
 jobs:
@@ -25,4 +27,4 @@ jobs:
       # `pg`, or calls `fetch` directly.
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm run build:console
+      - run: npm run build:apps

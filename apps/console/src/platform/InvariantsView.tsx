@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { InvariantReport } from "@platform/sdk";
-import { platform } from "../client.ts";
+import { platform } from "@platform/app-kit";
 
 /**
  * The observability surface: what the platform claims is true, when it last

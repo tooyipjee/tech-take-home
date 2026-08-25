@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { InvokeResult } from "@platform/sdk";
-import { platform } from "../client.ts";
-import { OutcomeBanner } from "../Outcome.tsx";
+import { OutcomeBanner, platform } from "@platform/app-kit";
 
 interface ReviewItem {
   id: string;

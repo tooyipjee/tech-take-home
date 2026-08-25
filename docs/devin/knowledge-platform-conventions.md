@@ -8,9 +8,11 @@ Authorisation, amount ceilings, rate limits, idempotency, approvals and audit ar
 concerns. Code that re-implements any of them in an app or a handler is wrong even when it works.
 
 **Layout.** `packages/kernel` runtime and registry · `packages/capabilities` the reviewed verb
-surface · `packages/db` migrations, seed and `DataSource` · `packages/sdk` the only import an app
-may use · `apps/api` Fastify host · `apps/console` shell, with `src/apps/*` applications and
-`src/platform/*` platform views.
+surface · `packages/db` migrations, seed and `DataSource` · `packages/sdk` the only platform import
+an app may use, alongside `packages/app-kit` (bound client, identity switcher, outcome banner,
+stylesheet) · `apps/api` Fastify host · `apps/console` the platform's own screens plus a launcher.
+An app is a folder under `apps/` with its own Vite config and port — `apps/refunds`,
+`apps/review-queue`, `apps/kyc-review` — and a new app is a new folder, nothing more.
 
 **Two tiers of work.** Building an app on top of the existing capabilities and invariants is tier 1
 (`docs/devin/playbook-build-an-app.md`). Changing the kernel, the invariants, a migration, the
