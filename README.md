@@ -1,5 +1,8 @@
 # Internal Tool Platform
 
+![The console's Apps tab: the KYC review queue discovered from its app.json, signed in as a
+compliance officer](docs/images/launcher.png)
+
 One framework, one Postgres database, back-office apps talking to it — and a layer in between
 that decides what each app is allowed to do.
 
@@ -42,26 +45,6 @@ for the real thing changes `resolvePrincipal` and nothing else). Two compliance 
 because four-eyes plus a compliance-only approval tier means a request raised by the only officer
 could never be cleared. Tile availability is presentation only; the runtime re-checks scopes on
 every capability call.
-
-## Watch it refuse things
-
-The demo is not the happy path. Each row below is a rule being enforced somewhere the app cannot
-reach it — work down the list in the console and the KYC queue:
-
-| Do this | What happens | Enforced by |
-| --- | --- | --- |
-| As **Robin**, approve `KYC-1041` (low risk, clean) | `ok` — the decision and its audit row commit together | — |
-| As **Avery**, approve `KYC-1043` | `denied_scope` — a reviewer does not hold `kyc:decide` | `policy.scope` |
-| As **Robin**, approve `KYC-1043` (high risk) | `pending_approval`; the handler never ran | `approval.derived_from_subject`, asked of the case in SQL |
-| Approve your own request in **Approvals** | denied — four-eyes | `approvals.decided_by_a_second_person` |
-| As **Sam**, clear the approval on `KYC-1045` (unresolved OFAC hit) | denied — that case demands an approver holding `kyc:sar` | the clause stored with the request |
-| **Reveal PII** on any case | needs a justification, metered at 20/hour, and audited on its own | `kyc.case.pii.reveal` |
-| Decide the same case twice, or from a stale tab | `conflict`, and a double-click replays instead of deciding twice | revision + idempotency key |
-| Open **Invariants** → *Reconcile now* | every rule re-proved against committed data, each showing what it was derived from | — |
-| In `psql`: delete a decision's audit row, then reconcile | `kyc.case.approve.effects_are_attributed` fails → that capability halts and returns `halted`; every other capability keeps serving | reconciler |
-
-The **Audit log** tab (as Sam) is the whole story: every call, its outcome, and who made it —
-including the refusals.
 
 ## The three tiers
 
@@ -167,6 +150,29 @@ Each invariant is then proved three times: by the database (constraints, append-
 as a postcondition inside the writing transaction (fails → the effect rolls back, the refusal is
 audited), and by a reconciler on a timer (fails → the capabilities that rule guards are halted).
 Why three: see [ADR 0006](docs/adr/0006-invariants-are-enforced-three-times.md).
+
+## Watch it refuse things
+
+Everything above is easier to believe after watching the platform say no. Each row is a rule
+enforced somewhere an app cannot reach it; the **Audit log** tab (as Sam) then shows every one of
+them, refusals included.
+
+<details>
+<summary>A walkthrough of nine refusals, in the console and the KYC queue</summary>
+
+| Do this | What happens | Enforced by |
+| --- | --- | --- |
+| As **Robin**, approve `KYC-1041` (low risk, clean) | `ok` — the decision and its audit row commit together | — |
+| As **Avery**, approve `KYC-1043` | `denied_scope` — a reviewer does not hold `kyc:decide` | `policy.scope` |
+| As **Robin**, approve `KYC-1043` (high risk) | `pending_approval`; the handler never ran | `approval.derived_from_subject`, asked of the case in SQL |
+| Approve your own request in **Approvals** | denied — four-eyes | `approvals.decided_by_a_second_person` |
+| As **Sam**, clear the approval on `KYC-1045` (unresolved OFAC hit) | denied — that case demands an approver holding `kyc:sar` | the clause stored with the request |
+| **Reveal PII** on any case | needs a justification, metered at 20/hour, and audited on its own | `kyc.case.pii.reveal` |
+| Decide the same case twice, or from a stale tab | `conflict`, and a double-click replays instead of deciding twice | revision + idempotency key |
+| Open **Invariants** → *Reconcile now* | every rule re-proved against committed data, each showing what it was derived from | — |
+| In `psql`: delete a decision's audit row, then reconcile | `kyc.case.approve.effects_are_attributed` fails → that capability halts and returns `halted`; every other capability keeps serving | reconciler |
+
+</details>
 
 ## Layout
 
