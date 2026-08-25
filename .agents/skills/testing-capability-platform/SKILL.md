@@ -12,8 +12,23 @@ npm run setup     # docker compose up db + migrate + seed; safe to re-run
 npm run db:reset  # truncates transactional state and re-seeds; run before each test pass
 npm run dev       # API :8080, console :5173, KYC review queue :5174
 ```
+If the API 500s on `/api/invariants` with `column "invariant_id" does not exist`, the
+Docker volume straddles the old tenets→invariants migration rename. Fix with a fresh
+volume: `docker compose down -v && npm run setup` (restart the API afterwards — dropping
+the DB kills its pg pool).
 Postgres runs in the container `platform-db` on host port 5433. Inspect state with:
 `docker exec platform-db psql -U platform -d platform -c "select id, reference, status, risk_band from kyc_cases;"`
+
+## Launcher / app discovery (console :5173)
+The console "Apps" tab globs `apps/*/app.json` via `import.meta.glob` in
+`apps/console/src/Launcher.tsx`. Adding a new `apps/<name>/app.json` yields a new tile
+without code changes, BUT the Vite dev server for the console may not detect files
+created outside `apps/console` (its root) — if the tile doesn't appear after a hard
+reload, restart just the console server: kill the `vite --config apps/console/...`
+process and re-run `npm run dev:console`. Deleting the folder IS picked up live.
+Platform tabs are scope-gated: Approvals (approvals:read+decide), Audit (audit:read),
+Registry (open to all), Invariants (invariants:read); switching to a user lacking the
+active tab's scopes bounces to Apps.
 
 ## Identity
 No credentials. Identity is the `x-platform-user` header: `u_agent` (Avery, reviewer),
@@ -40,6 +55,14 @@ So a decision on `case_1041` → `ok`; on `case_1043` → `pending_approval` nee
 `kyc:decide`; on `case_1045` → `pending_approval` needing `kyc:sar`.
 
 ## Useful adversarial probes
+Valid denial probes (routes exist in `apps/api/src/main.ts`; don't guess capability names):
+```bash
+curl -s localhost:8080/api/approvals -H 'x-platform-user: u_agent'   # 403 approvals:read
+curl -s localhost:8080/api/audit -H 'x-platform-user: u_agent'       # 403 audit:read
+curl -s -X POST localhost:8080/api/capabilities/kyc.case.approve/invoke \
+  -H 'content-type: application/json' -H 'x-platform-user: u_agent' \
+  -d '{"input":{"caseId":"case_1041","revision":1,"note":"twenty characters at least here"},"idempotencyKey":"probe-1"}' # denied_scope, agent lacks kyc:decide
+```
 ```bash
 # forged approval grant in the POST body (API should ignore it; main.ts never forwards it)
 curl -s -X POST localhost:8080/api/capabilities/kyc.case.approve/invoke \

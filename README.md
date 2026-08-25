@@ -33,11 +33,15 @@ npm run setup     # Postgres in Docker, migrate, seed
 npm run dev       # api :8080 · console :5173 · kyc review queue :5174
 ```
 
-Open the console at <http://localhost:5173>; its **Apps** tab links to the KYC app. There is no
-login; the **acting as** switcher picks the principal (Avery, reviewer · Sam, lead · Robin and
-Dana, compliance) and the API reads it from the `x-platform-user` header. Two compliance officers
-exist because four-eyes plus a compliance-only approval tier means a request raised by the only
-officer could never be cleared.
+Open the console at <http://localhost:5173>. Its **Apps** tab is the launcher: every app folder's
+`app.json` becomes a tile, offered or locked according to the signed-in principal's scopes — today
+there is one, the KYC review queue. The **signed in as** switcher in the header is a mock identity
+provider: it picks the principal (Avery, reviewer · Sam, lead · Robin and Dana, compliance), the API
+reads it from the `x-platform-user` header, and it stands in for an OAuth2/OIDC sign-in (swapping it
+for the real thing changes `resolvePrincipal` and nothing else). Two compliance officers exist
+because four-eyes plus a compliance-only approval tier means a request raised by the only officer
+could never be cleared. Tile availability is presentation only; the runtime re-checks scopes on
+every capability call.
 
 ## Drive it
 
@@ -152,10 +156,13 @@ import (`@platform/sdk`, `@platform/app-kit`). `apps/*` is everything above it, 
 deployable. The console is not an app either — it is the platform's own screens plus a launcher.
 
 **A new app is a new folder.** Copy the shape of `apps/kyc-review`: a `package.json`, an
-`index.html`, a `vite.config.ts` with its own port, and `src/`. Add a `dev:<name>` script at the
-root, add a row to the launcher in `apps/console/src/Launcher.tsx`, and that is the whole
-ceremony — the boundary check picks up every folder under `apps/` automatically, so the new app is
-held to `@platform/sdk` from its first commit without anyone remembering to list it.
+`index.html`, a `vite.config.ts` with its own port, `src/`, and an `app.json` describing the app
+(name, url, scopes). Add a `dev:<name>` script at the root, and that is the whole ceremony — the
+launcher discovers every `apps/*/app.json` and the boundary check picks up every folder under
+`apps/` automatically, so the new app shows up on the launcher and is held to `@platform/sdk`
+from its first commit without anyone remembering to list it. Restart `npm run dev` after adding
+the folder: the new app needs its dev server, and the console's Vite watcher only re-globs
+`app.json` files on startup.
 
 ## Scripts
 

@@ -48,13 +48,16 @@ cannot write a row that is not attributable to an audited invocation. New querie
 `error`.
 
 **Seeded principals.** `u_agent` (agent: `kyc:read`, `kyc:pii`, `kyc:review`), `u_supervisor`
-(supervisor: adds `kyc:decide`, `approvals:*`, `audit:read`), `u_admin` and `u_admin_2` (admin: add
-`kyc:sar` and `invariants:clear`; there are two so a request needing `kyc:sar` can still be
-four-eyed). All roles have `invariants:read`. The console header switches acting user; the
-API takes `x-platform-user`.
+(supervisor: adds `kyc:decide`, `approvals:*`, `audit:read`), `u_admin` and `u_admin_2` (admins:
+add `kyc:sar` and `invariants:clear`; two of them so a compliance approval has a second pair of
+eyes). All roles have `invariants:read`. Every app header switches acting user; the API takes
+`x-platform-user`.
 
-**Commands.** `npm run setup` (Postgres + migrate + seed) · `npm run dev` (API :8080, console
-:5173) · `npm run lint` (boundary + tier check) · `npm run typecheck` · `npm test` ·
+**Deciding an approval** needs `approvals:decide` *and* the capability's declared `approverScope`,
+and never the requester themself.
+
+**Commands.** `npm run setup` (Postgres + migrate + seed) · `npm run dev` (api :8080 · console
+:5173 · kyc :5174; one at a time with `dev:api`, `dev:console`, `dev:kyc`) · `npm run lint` (boundary + tier check) · `npm run typecheck` · `npm test` ·
 `npm run test:db` (invariants against a real database) · `npm run reconcile` (one-shot invariant
 check, non-zero exit on violation).
 

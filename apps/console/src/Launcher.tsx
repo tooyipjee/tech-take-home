@@ -1,64 +1,88 @@
-/**
- * One row per app. An app is a folder under `apps/` served on its own port, so
- * the launcher links out rather than importing it: nothing an app does can reach
- * the console's code, and adding an app changes this list only.
- */
-const APPS = [
-  {
-    name: "KYC review queue",
-    folder: "apps/kyc-review",
-    url: "http://localhost:5174",
-    scopes: ["kyc:read", "kyc:pii", "kyc:review", "kyc:decide", "kyc:sar"],
-    blurb: "Onboarding cases: PII reveal is metered, decisions are four-eyed, SARs need compliance.",
-  },
-];
+/// <reference types="vite/client" />
+import type { PlatformUser } from "@platform/sdk";
 
-export function Launcher() {
+/**
+ * An app is a folder under `apps/` served on its own port, so the launcher
+ * links out rather than importing it: nothing an app does can reach the
+ * console's code. Each folder describes itself in an `app.json`, discovered
+ * here by glob — adding an app never edits the console.
+ */
+export interface AppManifest {
+  id: string;
+  name: string;
+  description: string;
+  folder: string;
+  url: string;
+  /** Every scope the app's capabilities use — shown on the tile. */
+  scopes: string[];
+  /** The minimum to offer the tile. Presentation only: the runtime re-checks on every call. */
+  requiredScopes: string[];
+}
+
+const manifests = import.meta.glob<{ default: AppManifest }>("../../*/app.json", { eager: true });
+
+export const APPS: AppManifest[] = Object.values(manifests)
+  .map((module) => module.default)
+  .sort((a, b) => a.name.localeCompare(b.name));
+
+function missingScopes(entry: AppManifest, held: string[]): string[] {
+  return entry.requiredScopes.filter((scope) => !held.includes(scope));
+}
+
+export function Launcher({ user }: { user: PlatformUser | undefined }) {
+  const held = user?.scopes ?? [];
+
   return (
     <>
       <h2>Apps</h2>
       <p className="hint">
-        Each app is a folder in <code>apps/</code> with its own dev server, talking to this platform
-        through <code>@platform/sdk</code>. The console itself is not an app: it is approvals, audit,
-        the registry and invariant health.
+        {user
+          ? `Signed in as ${user.name} — ${user.role}, ${held.length} scopes. Locked tiles show what is missing.`
+          : "Loading identity…"}{" "}
+        Each app is a folder in <code>apps/</code> with its own dev server and an <code>app.json</code>,
+        talking to this platform through <code>@platform/sdk</code>. Tile availability is presentation
+        only; the runtime re-checks scopes on every capability call.
       </p>
-      <table>
-        <thead>
-          <tr>
-            <th>App</th>
-            <th>Folder</th>
-            <th>Scopes it needs</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {APPS.map((app) => (
-            <tr key={app.folder}>
-              <td>
-                <strong>{app.name}</strong>
-                <div>
-                  <code>{app.blurb}</code>
-                </div>
-              </td>
-              <td>
-                <code>{app.folder}</code>
-              </td>
-              <td>
-                {app.scopes.map((scope) => (
-                  <span key={scope} className="badge">
-                    {scope}
-                  </span>
-                ))}
-              </td>
-              <td>
-                <a className="action" href={app.url} target="_blank" rel="noreferrer">
-                  Open
-                </a>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="tile-grid">
+        {APPS.map((entry) => (
+          <Tile key={entry.id} entry={entry} held={held} />
+        ))}
+      </div>
     </>
+  );
+}
+
+function Tile({ entry, held }: { entry: AppManifest; held: string[] }) {
+  const missing = missingScopes(entry, held);
+  const locked = missing.length > 0;
+
+  function open() {
+    if (!locked) window.open(entry.url, "_blank", "noopener");
+  }
+
+  return (
+    <button className={`tile${locked ? " locked" : ""}`} onClick={open} disabled={locked}>
+      <span className="tile-head">
+        <span className="tile-name">{entry.name}</span>
+        {locked ? <span className="badge bad">locked</span> : <span className="badge ok">open</span>}
+      </span>
+      <span className="tile-desc">{entry.description}</span>
+      <span className="tile-foot">
+        <code>{entry.folder}</code>{" "}
+        {entry.scopes.map((scope) => (
+          <span key={scope} className="badge">
+            {scope}
+          </span>
+        ))}
+      </span>
+      {locked ? (
+        <span className="tile-missing">
+          requires{" "}
+          {missing.map((scope) => (
+            <code key={scope}>{scope}</code>
+          ))}
+        </span>
+      ) : null}
+    </button>
   );
 }
