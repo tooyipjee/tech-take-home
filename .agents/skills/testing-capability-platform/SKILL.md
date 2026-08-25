@@ -10,8 +10,14 @@ description: How to run and end-to-end test Rangka, the capability-based interna
 npm install
 npm run setup     # docker compose up db + migrate + seed; safe to re-run
 npm run db:reset  # truncates transactional state and re-seeds; run before each test pass
-npm run dev       # API :8080, console :5173, KYC review queue :5174
+npm run dev       # API :8080, console :5173, KYC review queue :5174,
+                  # SAR desk :5177, feature flags :5178 (every apps/*/ is auto-discovered)
 ```
+Never `pkill -f vite` / `pkill -f apps/api` to restart one app: on this box that kills the
+whole `npm run dev` tree (and can kill the exec shell). Restart the whole stack instead, and
+launch it with the exec tool's background mode (`timeout: 0`) rather than a shell `&`, which
+dies with the call. Verify with `for p in 8080 5173 5174 5177 5178; do curl -s -o /dev/null
+-w "$p:%{http_code}\n" localhost:$p; done` — the API answers 404 on `/`, which is healthy.
 If the API 500s on `/api/invariants` with `column "invariant_id" does not exist`, the
 Docker volume straddles the old tenets→invariants migration rename. Fix with a fresh
 volume: `docker compose down -v && npm run setup` (restart the API afterwards — dropping
@@ -86,6 +92,37 @@ docker exec platform-db psql -U platform -d platform -t -A -c \
   and outcome in ('ok','pending_approval') and at > now() - interval '1 hour';"
 ```
 `npm run db:reset` clears the audit log, which resets the rate-limit window.
+
+## Feature flags app (apps/feature-flags, :5178)
+Two verbs only: `flags.list` (`flags:read`, every role) and `flags.flip` (`flags:write`,
+admins only). Seed: 8 flags, 4 protected (`payments.instant_payouts`,
+`payments.retry_on_soft_decline`, `limits.dynamic_velocity_ceiling`, `checkout.fee_preview`).
+Protected flags need a second `flags:write` holder; ordinary ones flip immediately.
+UI: one table (Feature / State / Before you click / Last changes / Turn on-off) plus a
+"Waiting for a second administrator" table with Sign off / Decline. Flip buttons are
+deliberately enabled for everyone — clicking as a non-admin is the correct test and yields
+"You cannot flip flags".
+Ground truth: `docker exec platform-db psql -U platform -d platform -c "select flag_id,
+from_enabled, to_enabled, flipped_by, note from feature_flag_changes order by at;"` —
+`flipped_by` must be the *requester* on an approved flip, not the approver.
+
+### Gotchas when UI-testing this app
+- The outcome banner is component state and **survives an identity switch**. After switching
+  roles, reload before clicking, or you cannot tell a fresh refusal from the previous one.
+  Reloading resets the acting identity back to the default (Avery), so re-select the role.
+- Self-approval comes back as `denied_scope` with error "an approver may not approve their own
+  request", so any app mapping outcome→message purely on `denied_scope` will show the
+  wrong-role wording to an admin. Check the audit row's `error` column, not just the banner.
+- `npm run db:reset` restores flag state and empties `feature_flag_changes`; do it before each
+  pass, since a stale `revision` makes a flip return `conflict`.
+
+## Launcher tile gating (console :5173)
+`requiredScopes` in each `apps/*/app.json` decides whether a tile is offered. As of the
+feature-flags change **no seeded role lacks any tile's requiredScopes** (all are `kyc:read`
+or `flags:read`, held by every role), so nothing is locked out of the box. To exercise the
+locked path, temporarily set e.g. `apps/sar-desk/app.json` `requiredScopes` to `["kyc:sar"]`
+(admins only), restart the stack, and compare Avery (greyed tile, "Your role does not have
+access", click is a no-op) with Robin ("Open →"). Revert the file afterwards.
 
 ## Devin Secrets Needed
 None.
