@@ -9,6 +9,13 @@
  * the invariant it affects and how it was tested. This script is what makes that a
  * rule rather than an expectation: a tier-1 change that edits the kernel fails
  * here, before review.
+ *
+ * Tier 3 (infrastructure) is CI, the host processes, the console shell and the build
+ * itself: it changes the ground every other tier stands on, and is reserved for
+ * people who own the platform. It is not blocked here — a check cannot tell who you
+ * are — but it is named, so the pull request carries the label that asks for that
+ * review. The tier is printed with the label to apply, so classifying a PR is a
+ * lookup rather than a judgement call.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -21,6 +28,24 @@ const PROTECTED = [
   { prefix: "packages/sdk/", why: "the surface every app depends on" },
   { prefix: "scripts/check-", why: "the checks that enforce the boundaries" },
 ];
+
+/**
+ * Infrastructure: what decides how the platform is built, hosted and checked, as
+ * opposed to what it promises. Elevated review, by convention rather than by force.
+ */
+const INFRASTRUCTURE = [
+  ".github/",
+  "docker-compose.yml",
+  // Not package-lock.json: adding an app is a workspace, so a tier-1 PR legitimately
+  // changes the lockfile and must not be escalated for it.
+  "package.json",
+  "tsconfig.json",
+  "apps/api/",
+  "apps/console/",
+  "scripts/",
+];
+
+const LABELS = { 1: "tier-1: app", 2: "tier-2: platform", 3: "tier-3: infrastructure" };
 
 const CHANGE_RECORD_DIR = "docs/platform-changes";
 const REQUIRED_SECTIONS = ["## Invariants affected", "## How it was verified", "## Rollback"];
@@ -60,14 +85,29 @@ function changedFiles() {
   }
 }
 
+/** `--label` prints nothing but the label, for CI to apply to the pull request. */
+const LABEL_ONLY = process.argv.includes("--label");
+
 const files = changedFiles();
 const problems = [];
 
+let tier = null;
+
 if (files === null) {
-  console.log("tier check skipped (no git base to compare against)");
+  if (!LABEL_ONLY) console.log("tier check skipped (no git base to compare against)");
 } else {
   const platformEdits = files.filter((file) => PROTECTED.some((p) => file.startsWith(p.prefix)));
+  const infraEdits = files.filter((file) =>
+    INFRASTRUCTURE.some((prefix) => file.startsWith(prefix)),
+  );
   const records = files.filter((file) => file.startsWith(`${CHANGE_RECORD_DIR}/`));
+
+  // The highest tier the diff reaches is the tier of the change. A pull request that
+  // touches CI and an app is an infrastructure pull request; asking for the lighter
+  // review because most of the files were harmless is the mistake to prevent.
+  if (infraEdits.length > 0) tier = 3;
+  else if (platformEdits.length > 0) tier = 2;
+  else if (files.length > 0) tier = 1;
 
   if (platformEdits.length > 0 && records.length === 0) {
     problems.push(
@@ -98,9 +138,24 @@ if (!invariantTest.includes("no invariant is in force without a test that attack
   );
 }
 
+if (LABEL_ONLY) {
+  console.log(tier === null ? "" : LABELS[tier]);
+  process.exit(0);
+}
+
 if (problems.length > 0) {
   console.error("Tier check failed:\n");
   for (const problem of problems) console.error(`  ${problem}\n`);
   process.exit(1);
 }
-console.log("tier check passed");
+
+if (tier === null) {
+  console.log("tier check passed");
+} else {
+  console.log(`tier check passed — tier ${tier}; label the pull request "${LABELS[tier]}"`);
+  if (tier === 3) {
+    console.log(
+      "  infrastructure is elevated: agree the change with a platform owner before merging",
+    );
+  }
+}

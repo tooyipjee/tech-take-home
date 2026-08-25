@@ -1,0 +1,52 @@
+name: tier label
+
+# The tier of a change decides how much review it gets, so it should not be a claim
+# the author makes about their own PR. `scripts/check-tier.mjs --label` derives it
+# from the paths in the diff — the same logic that fails a tier-2 edit with no change
+# record — and this workflow puts it on the pull request as a label.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  label:
+    name: derive and apply the tier label
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Derive the tier from the diff
+        id: tier
+        env:
+          TIER_CHECK_BASE: origin/${{ github.base_ref }}
+        run: echo "label=$(node scripts/check-tier.mjs --label)" >> "$GITHUB_OUTPUT"
+      - name: Apply it, replacing any other tier label
+        if: steps.tier.outputs.label != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LABEL: ${{ steps.tier.outputs.label }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # Labels are created on first use so a fresh clone of this repository needs
+          # no manual setup; colours are stable, descriptions explain the review each
+          # tier asks for.
+          create() { gh label create "$1" --color "$2" --description "$3" --force; }
+          create "tier-1: app" 0e8a16 "Composes existing capabilities; cannot weaken a guarantee"
+          create "tier-2: platform" d93f0b "Changes what the platform can promise; needs a change record and full review"
+          create "tier-3: infrastructure" 5319e7 "Changes CI, the hosts, the console shell or the build; elevated review"
+          for stale in "tier-1: app" "tier-2: platform" "tier-3: infrastructure"; do
+            if [ "$stale" != "$LABEL" ]; then
+              gh pr edit "$PR" --remove-label "$stale" || true
+            fi
+          done
+          gh pr edit "$PR" --add-label "$LABEL"
