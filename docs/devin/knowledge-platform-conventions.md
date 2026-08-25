@@ -95,7 +95,7 @@ protected flag flip has a second pair of eyes). All roles have `invariants:read`
 and never the requester themself.
 
 **Commands.** `npm run setup` (Postgres + migrate + seed) · `npm run dev` (api :8080 · console
-:5173 · kyc :5174 · sar :5177 · flags :5178 — every app folder, discovered; one alone with
+:5173 · kyc :5174 · sar desk :5177 · flags :5178 — every app folder, discovered; one alone with
 `npx vite --config apps/<name>/vite.config.ts` plus `npm run dev:api`) · `npm run lint`
 (boundary, manifest and tier checks) · `npm run typecheck` (the platform, then each app against
 its own tsconfig) · `npm test` ·

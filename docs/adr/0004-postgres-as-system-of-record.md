@@ -14,7 +14,7 @@ an unauditable second ledger.
 For now, one Postgres holds both: platform state (`platform_users`, `capability_registry`,
 `approvals`, `idempotency_keys`, `audit_log`) and business data — today the KYC schema
 (`kyc_cases` and its documents, screening hits, risk signals, decisions, disclosures and SARs;
-originally `payments`/`refunds`, replaced when KYC became the only app).
+originally `payments`/`refunds`, replaced when KYC became the only domain).
 
 ## Consequences
 

@@ -1,15 +1,15 @@
 # KYC Review Queue
 
-The only app in this repository, and it is an app on the platform rather than part of it: no SQL, no
-vendor SDK, no credentials, and no policy of its own. Every read and every effect goes through a
-`kyc.*` capability the kernel enforces. See `docs/apps/kyc-review-queue.md` for the capability spec.
+An app on the platform rather than part of it: no SQL, no vendor SDK, no credentials, and no
+policy of its own. Every read and every effect goes through a `kyc.*` capability the kernel
+enforces. See `docs/apps/kyc-review-queue.md` for the capability spec.
 
 ## Run
 
 ```bash
 npm install      # from the repo root
 npm run setup    # Postgres in Docker, migrations, seed
-npm run dev      # API :8080, console :5173, this app :5174
+npm run dev      # API :8080, console :5173, this app :5174, SAR desk :5177
 ```
 
 The app talks to the platform API over `@rangka/sdk`; Vite proxies `/api` to the API host. There is

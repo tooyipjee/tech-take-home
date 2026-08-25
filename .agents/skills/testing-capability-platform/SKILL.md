@@ -10,10 +10,11 @@ description: How to run and end-to-end test Rangka, the capability-based interna
 npm install
 npm run setup     # docker compose up db + migrate + seed; safe to re-run
 npm run db:reset  # truncates transactional state and re-seeds; run before each test pass
-npm run dev       # API :8080, console :5173, KYC review queue :5174
+npm run dev       # API :8080, console :5173, KYC review queue :5174, SAR desk :5177
 ```
 If the API 500s on `/api/invariants` with `column "invariant_id" does not exist`, the
-Docker volume straddles the old tenets→invariants migration rename. Fix with a fresh
+Docker volume predates the current migrations (`0003_invariants.sql` was once
+`0003_tenets.sql`, a rename rather than a new migration). Fix with a fresh
 volume: `docker compose down -v && npm run setup` (restart the API afterwards — dropping
 the DB kills its pg pool).
 Postgres runs in the container `platform-db` on host port 5433. Inspect state with:
