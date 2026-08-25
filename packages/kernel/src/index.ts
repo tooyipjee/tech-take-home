@@ -3,22 +3,22 @@ export { invoke, decideApproval, listApprovals } from "./runtime.ts";
 export type { InvokeRequest, ApprovalDecision, ApprovalRow } from "./runtime.ts";
 export { listAuditLog, syncRegistry } from "./audit.ts";
 export {
-  tenets,
-  checkTenet,
-  getTenet,
-  tenetsFor,
-  tenetsHalting,
+  invariants,
+  checkInvariant,
+  getInvariant,
+  invariantsFor,
+  invariantsHalting,
   describeViolations,
-} from "./tenets.ts";
-export type { Tenet, TenetViolation } from "./tenets.ts";
+} from "./invariants.ts";
+export type { Invariant, InvariantViolation } from "./invariants.ts";
 export {
   reconcile,
   startReconciler,
-  listTenetStatus,
+  listInvariantStatus,
   listHalts,
   clearHalt,
 } from "./reconciler.ts";
-export type { TenetStatus, HaltRow, ReconciliationResult, ClearHaltResult } from "./reconciler.ts";
+export type { InvariantStatus, HaltRow, ReconciliationResult, ClearHaltResult } from "./reconciler.ts";
 export type { AuditEntry } from "./audit.ts";
 export { ROLE_SCOPES, resolvePrincipal, listPrincipals } from "./auth.ts";
 export { CapabilityError, PolicyDeclarationError } from "./errors.ts";

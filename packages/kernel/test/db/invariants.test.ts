@@ -2,7 +2,7 @@
  * The proof, against a real database.
  *
  * These tests are the answer to "how do we know the audit trail is telling the
- * truth?". Each one takes a tenet, tries to break it by a different route — a
+ * truth?". Each one takes an invariant, tries to break it by a different route — a
  * lying capability, a direct SQL write, a tampered payment — and asserts the
  * platform either refuses the write or notices and halts.
  *
@@ -18,7 +18,7 @@ import { defineWrite, invoke } from "../../src/index.ts";
 import { syncRegistry } from "../../src/audit.ts";
 import { resolvePrincipal } from "../../src/auth.ts";
 import { clearHalt as clearCapabilityHalt, reconcile } from "../../src/reconciler.ts";
-import { checkTenet, getTenet } from "../../src/tenets.ts";
+import { checkInvariant, getInvariant } from "../../src/invariants.ts";
 import type { Principal } from "../../src/types.ts";
 
 /** $42.00 — small enough to exercise conservation. */
@@ -52,10 +52,10 @@ const refund = (amountCents: number, paymentId = SMALL_PAYMENT) =>
     idempotencyKey: randomUUID(),
   });
 
-async function violationsOf(tenetId: string) {
-  const tenet = getTenet(tenetId);
-  assert.ok(tenet, `unknown tenet ${tenetId}`);
-  return withClient((client) => checkTenet(client, tenet));
+async function violationsOf(invariantId: string) {
+  const invariant = getInvariant(invariantId);
+  assert.ok(invariant, `unknown invariant ${invariantId}`);
+  return withClient((client) => checkInvariant(client, invariant));
 }
 
 /** Writes an audit row by hand, the way a corrupted or hostile path would. */
@@ -179,7 +179,7 @@ test("a capability that lies about its amount is rolled back by the postconditio
       }),
   });
 
-  // Nothing was done to guard this capability: declaring it derived its tenets.
+  // Nothing was done to guard this capability: declaring it derived its invariants.
   const result = await invoke({
     capability: "refunds.sneaky",
     input: { paymentId: LARGE_PAYMENT, amountCents: 1_000 },
@@ -187,7 +187,7 @@ test("a capability that lies about its amount is rolled back by the postconditio
     idempotencyKey: randomUUID(),
   });
 
-  assert.equal(result.outcome, "tenet_violation");
+  assert.equal(result.outcome, "invariant_violation");
   assert.match(result.message ?? "", /effects_are_attributed/);
 
   const { rows } = await withClient((client) => client.query("select count(*) from refunds"));
@@ -197,7 +197,7 @@ test("a capability that lies about its amount is rolled back by the postconditio
     client.query("select outcome, error from audit_log where capability = 'refunds.sneaky'"),
   );
   assert.equal(audited.rows.length, 1, "the refusal is still on the record");
-  assert.equal(audited.rows[0].outcome, "tenet_violation");
+  assert.equal(audited.rows[0].outcome, "invariant_violation");
 });
 
 test("drift that arrives outside the runtime is caught by the reconciler and halts the capability", async () => {
@@ -211,7 +211,7 @@ test("drift that arrives outside the runtime is caught by the reconciler and hal
 
   const first = await reconcile();
   assert.ok(
-    first.violations.some((violation) => violation.tenetId === "refunds.issue.conserves_payments"),
+    first.violations.some((violation) => violation.invariantId === "refunds.issue.conserves_payments"),
     "the reconciler re-derives the invariant from committed state",
   );
   // Every capability whose declared effect draws on that payment halts, and only those.
@@ -222,7 +222,7 @@ test("drift that arrives outside the runtime is caught by the reconciler and hal
   assert.equal(blocked.outcome, "halted");
   assert.match(blocked.message ?? "", /refunds\.issue\.conserves_payments/);
 
-  // Other capabilities keep serving: the halt is scoped to what the tenet guards.
+  // Other capabilities keep serving: the halt is scoped to what the invariant guards.
   const reads = await invoke({
     capability: "refunds.listRefundable",
     input: { limit: 5 },
@@ -243,14 +243,14 @@ test("drift that arrives outside the runtime is caught by the reconciler and hal
   assert.equal(
     (await refund(100, LARGE_PAYMENT)).outcome,
     "ok",
-    "the capability resumes once the tenet holds",
+    "the capability resumes once the invariant holds",
   );
 });
 
 test("only an admin can clear a halt", async () => {
   await withClient((client) =>
     client.query(
-      "insert into capability_halts (capability, tenet_id, detail) values ('refunds.issue', 'test', 'test')",
+      "insert into capability_halts (capability, invariant_id, detail) values ('refunds.issue', 'test', 'test')",
     ),
   );
   const supervisor = await withClient((client) => resolvePrincipal(client, "u_supervisor"));
@@ -260,7 +260,7 @@ test("only an admin can clear a halt", async () => {
   assert.match(result.message, /cannot clear a halt/);
 });
 
-test("approvals.decided_by_a_second_person and the approval tenet hold over the seeded flow", async () => {
+test("approvals.decided_by_a_second_person and the approval invariant hold over the seeded flow", async () => {
   const requested = await refund(60_000, LARGE_PAYMENT);
   assert.equal(requested.outcome, "pending_approval");
   assert.deepEqual(await violationsOf("approvals.decided_by_a_second_person"), []);
@@ -300,7 +300,7 @@ test("refunds.issue.respects_declared_ceiling: an effect above the declared ceil
   assert.match(violation?.detail ?? "", /exceeds the declared ceiling 200000/);
 });
 
-test("refunds.issue.respects_declared_rate: the runtime refuses the 11th, and the tenet proves it", async () => {
+test("refunds.issue.respects_declared_rate: the runtime refuses the 11th, and the invariant proves it", async () => {
   for (let i = 0; i < 10; i += 1) {
     assert.equal((await refund(100, LARGE_PAYMENT)).outcome, "ok");
   }

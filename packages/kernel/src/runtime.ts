@@ -4,7 +4,7 @@ import type { PgClient } from "@platform/db";
 import { resolvePrincipal } from "./auth.ts";
 import { activeHalt } from "./reconciler.ts";
 import { getCapability } from "./registry.ts";
-import { assertPostconditions, describeViolations } from "./tenets.ts";
+import { assertPostconditions, describeViolations } from "./invariants.ts";
 import type {
   Capability,
   CapabilityContext,
@@ -122,7 +122,7 @@ async function countRecentAccepted(
  * effect. An app cannot perform an unlogged, unbounded or unauthorised action
  * because none of those checks live in code an app author writes.
  *
- * The last step of a write is a tenet postcondition (see ./tenets.ts): the
+ * The last step of a write is an invariant postcondition (see ./invariants.ts): the
  * transaction only commits if the platform's invariants still hold afterwards.
  */
 export async function invoke<T = unknown>(request: InvokeRequest): Promise<InvokeResult<T>> {
@@ -170,13 +170,13 @@ export async function invoke<T = unknown>(request: InvokeRequest): Promise<Invok
 
   const write = capability as WriteCapability;
 
-  // A violated tenet stops the capability it guards, not the platform: reads
+  // A violated invariant stops the capability it guards, not the platform: reads
   // and unrelated writes keep serving while a human investigates.
   const halt = await withClient((client) => activeHalt(client, write.name));
   if (halt) {
     return fail(
       "halted",
-      `${write.name} is halted since ${halt.haltedAt} by tenet ${halt.tenetId}: ${halt.detail}`,
+      `${write.name} is halted since ${halt.haltedAt} by invariant ${halt.invariantId}: ${halt.detail}`,
     );
   }
 
@@ -336,19 +336,19 @@ async function execute<T>(
       });
 
       // Postcondition, inside the transaction and after the audit row exists:
-      // the tenets are re-derived from what this transaction is about to
+      // the invariants are re-derived from what this transaction is about to
       // commit. Throwing here rolls back the effect, the idempotency key and
       // this audit row together, so a broken invariant never reaches disk.
       const violations = await assertPostconditions(client, capability.name);
       if (violations.length > 0) {
-        throw new TenetViolationError(describeViolations(violations));
+        throw new InvariantViolationError(describeViolations(violations));
       }
 
       return { outcome: "ok", result };
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const outcome: Outcome = error instanceof TenetViolationError ? "tenet_violation" : "error";
+    const outcome: Outcome = error instanceof InvariantViolationError ? "invariant_violation" : "error";
     // The rollback took the audit row with it, so the failure is recorded again
     // outside the transaction, under the same invocation id. A refused effect is
     // as visible, and as traceable, as an accepted one.
@@ -372,7 +372,7 @@ async function execute<T>(
   }
 }
 
-class TenetViolationError extends Error {}
+class InvariantViolationError extends Error {}
 
 /** Reads are audited by shape, not by payload, so the log stays useful and small. */
 function summarise(result: unknown): unknown {

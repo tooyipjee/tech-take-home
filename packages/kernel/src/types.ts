@@ -29,7 +29,7 @@ export type ApprovalRule =
 /**
  * Where a write capability's effect lands, and what finite thing it draws down.
  *
- * This is the declaration the platform derives tenets from: given it, every rule
+ * This is the declaration the platform derives invariants from: given it, every rule
  * that can be proved about the capability — attribution, conservation, ceiling,
  * approval, rate, idempotency — is generated from the policy above rather than
  * hand-written per capability. A money-moving capability that does not declare
@@ -67,7 +67,7 @@ export interface WritePolicy {
   approverScope: string;
   /** Dot path into the validated input holding the money amount, if any. */
   amountField?: string;
-  /** What the capability writes; the platform derives this capability's tenets from it. */
+  /** What the capability writes; the platform derives this capability's invariants from it. */
   effect?: EffectDeclaration;
 }
 
@@ -118,10 +118,10 @@ export type Outcome =
   | "rate_limited"
   | "invalid_input"
   | "not_found"
-  /** A tenet guarding this capability is violated; writes are refused until cleared. */
+  /** An invariant guarding this capability is violated; writes are refused until cleared. */
   | "halted"
-  /** The effect broke a tenet and was rolled back. */
-  | "tenet_violation"
+  /** The effect broke an invariant and was rolled back. */
+  | "invariant_violation"
   | "error";
 
 export interface InvokeResult<T = unknown> {

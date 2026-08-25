@@ -1,4 +1,4 @@
--- Tenets enforced by the database itself.
+-- Invariants enforced by the database itself.
 --
 -- Everything here holds even if the kernel has a bug, a migration is run by
 -- hand, or someone reaches the database with psql. These are the statements the
@@ -30,7 +30,7 @@ end $$;
 create or replace function require_invocation_id() returns trigger as $$
 begin
   if new.invocation_id is null then
-    raise exception 'tenet violation: % rows must be written by an audited invocation', tg_table_name
+    raise exception 'invariant violation: % rows must be written by an audited invocation', tg_table_name
       using errcode = 'check_violation';
   end if;
   return new;
@@ -45,7 +45,7 @@ create trigger refunds_require_invocation
 --    rewritten to make a violation disappear.
 create or replace function reject_mutation() returns trigger as $$
 begin
-  raise exception 'tenet violation: % is append-only (attempted %)', tg_table_name, tg_op
+  raise exception 'invariant violation: % is append-only (attempted %)', tg_table_name, tg_op
     using errcode = 'check_violation';
 end $$ language plpgsql;
 
@@ -69,7 +69,7 @@ declare
 begin
   select amount_cents into payment_amount from payments where id = new.payment_id for update;
   if payment_amount is null then
-    raise exception 'tenet violation: refund references unknown payment %', new.payment_id
+    raise exception 'invariant violation: refund references unknown payment %', new.payment_id
       using errcode = 'check_violation';
   end if;
 
@@ -78,7 +78,7 @@ begin
 
   if refunded > payment_amount then
     raise exception
-      'tenet violation: refunds on % total % which exceeds the payment amount %',
+      'invariant violation: refunds on % total % which exceeds the payment amount %',
       new.payment_id, refunded, payment_amount
       using errcode = 'check_violation';
   end if;
@@ -91,23 +91,23 @@ create constraint trigger refunds_conservation
   deferrable initially immediate
   for each row execute function enforce_refund_conservation();
 
--- 5. Reconciliation state. Tenets are re-checked continuously; a violated tenet
+-- 5. Reconciliation state. Invariants are re-checked continuously; a violated invariant
 --    halts the capabilities it guards until a human clears it.
-create table if not exists tenet_runs (
+create table if not exists invariant_runs (
   id          bigserial primary key,
   at          timestamptz not null default now(),
-  tenet_id    text not null,
+  invariant_id    text not null,
   violations  integer not null,
   detail      text,
   duration_ms integer not null
 );
 
-create index if not exists tenet_runs_tenet_at_idx on tenet_runs (tenet_id, at desc);
+create index if not exists invariant_runs_invariant_at_idx on invariant_runs (invariant_id, at desc);
 
 create table if not exists capability_halts (
   id          bigserial primary key,
   capability  text not null,
-  tenet_id    text not null,
+  invariant_id    text not null,
   detail      text not null,
   halted_at   timestamptz not null default now(),
   cleared_at  timestamptz,

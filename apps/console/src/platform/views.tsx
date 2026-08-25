@@ -2,7 +2,7 @@ import type { AppDefinition } from "../apps/manifest.ts";
 import { ApprovalsInbox } from "./ApprovalsInbox.tsx";
 import { AuditLog } from "./AuditLog.tsx";
 import { RegistryView } from "./RegistryView.tsx";
-import { TenetsView } from "./TenetsView.tsx";
+import { InvariantsView } from "./InvariantsView.tsx";
 
 /**
  * Built into the platform rather than generated, so these are declared
@@ -40,13 +40,13 @@ export const PLATFORM_VIEWS: AppDefinition[] = [
     render: () => <RegistryView />,
   },
   {
-    id: "tenets",
-    name: "Tenets",
+    id: "invariants",
+    name: "Invariants",
     description:
       "What the platform claims is always true, when it last proved it, and what it halted when a proof failed.",
-    requiredScopes: ["tenets:read"],
-    surface: "platform tenet reports",
+    requiredScopes: ["invariants:read"],
+    surface: "platform invariant reports",
     kind: "platform",
-    render: (actorId) => <TenetsView actorId={actorId} />,
+    render: (actorId) => <InvariantsView actorId={actorId} />,
   },
 ];

@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { z } from "zod";
 import { PolicyDeclarationError } from "../src/errors.ts";
 import { defineWrite } from "../src/registry.ts";
-import { getTenet, tenets, tenetsFor } from "../src/tenets.ts";
+import { getInvariant, invariants, invariantsFor } from "../src/invariants.ts";
 import "@platform/capabilities";
 
 /**
@@ -12,23 +12,23 @@ import "@platform/capabilities";
  * actually holds lives in ./db/invariants.test.ts, which attacks them against a
  * real database.
  */
-test("every tenet is well formed and says what it was derived from", () => {
+test("every invariant is well formed and says what it was derived from", () => {
   const ids = new Set<string>();
-  for (const tenet of tenets()) {
-    assert.ok(tenet.id.length > 0, "tenet needs an id");
-    assert.ok(!ids.has(tenet.id), `duplicate tenet id ${tenet.id}`);
-    ids.add(tenet.id);
-    assert.match(tenet.statement, /\.$/, `${tenet.id}: statement should read as a sentence`);
-    assert.match(tenet.query, /as subject/, `${tenet.id}: query must return a subject column`);
-    assert.match(tenet.query, /as detail/, `${tenet.id}: query must return a detail column`);
-    assert.ok(tenet.derivedFrom.length > 0, `${tenet.id}: must name what it derives from`);
+  for (const invariant of invariants()) {
+    assert.ok(invariant.id.length > 0, "invariant needs an id");
+    assert.ok(!ids.has(invariant.id), `duplicate invariant id ${invariant.id}`);
+    ids.add(invariant.id);
+    assert.match(invariant.statement, /\.$/, `${invariant.id}: statement should read as a sentence`);
+    assert.match(invariant.query, /as subject/, `${invariant.id}: query must return a subject column`);
+    assert.match(invariant.query, /as detail/, `${invariant.id}: query must return a detail column`);
+    assert.ok(invariant.derivedFrom.length > 0, `${invariant.id}: must name what it derives from`);
   }
 });
 
 test("declaring refunds.issue derives its whole rule set", () => {
   assert.deepEqual(
-    tenets()
-      .map((tenet) => tenet.id)
+    invariants()
+      .map((invariant) => invariant.id)
       .sort(),
     [
       "approvals.decided_by_a_second_person",
@@ -44,7 +44,7 @@ test("declaring refunds.issue derives its whole rule set", () => {
 });
 
 test("every rule a policy declares is proved after the fact, in the same transaction", () => {
-  const guarded = tenetsFor("refunds.issue").map((tenet) => tenet.id);
+  const guarded = invariantsFor("refunds.issue").map((invariant) => invariant.id);
   for (const rule of [
     "refunds.issue.conserves_payments",
     "refunds.issue.effects_are_attributed",
@@ -57,8 +57,8 @@ test("every rule a policy declares is proved after the fact, in the same transac
   }
 });
 
-test("thresholds inside a derived tenet come from the registry, not a second copy", () => {
-  const ceiling = getTenet("refunds.issue.respects_declared_ceiling");
+test("thresholds inside a derived invariant come from the registry, not a second copy", () => {
+  const ceiling = getInvariant("refunds.issue.respects_declared_ceiling");
   assert.match(ceiling?.query ?? "", /from capability_registry where name = 'refunds\.issue'/);
   assert.doesNotMatch(ceiling?.query ?? "", /200000/, "a hard-coded threshold can drift");
 });
@@ -84,18 +84,18 @@ test("a capability that moves money must declare where the money lands", () => {
   );
 });
 
-test("no tenet is in force without a test that attacks it", () => {
+test("no invariant is in force without a test that attacks it", () => {
   const sources = readdirSync("packages/kernel/test/db")
     .filter((entry) => entry.endsWith(".ts"))
     .map((entry) => readFileSync(`packages/kernel/test/db/${entry}`, "utf8"))
     .join("\n");
-  const untested = tenets()
-    .map((tenet) => tenet.id)
+  const untested = invariants()
+    .map((invariant) => invariant.id)
     .filter((id) => !sources.includes(id));
-  assert.deepEqual(untested, [], "a tenet with no test is a sentence, not a guarantee");
+  assert.deepEqual(untested, [], "an invariant with no test is a sentence, not a guarantee");
 });
 
-test("getTenet finds a tenet by id", () => {
-  assert.equal(getTenet("refunds.issue.conserves_payments")?.halts[0], "refunds.issue");
-  assert.equal(getTenet("nope"), undefined);
+test("getInvariant finds an invariant by id", () => {
+  assert.equal(getInvariant("refunds.issue.conserves_payments")?.halts[0], "refunds.issue");
+  assert.equal(getInvariant("nope"), undefined);
 });

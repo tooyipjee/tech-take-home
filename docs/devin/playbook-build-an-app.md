@@ -3,7 +3,7 @@
 Draft for a Devin playbook. Paste into a playbook, attach the knowledge note in
 [`knowledge-platform-conventions.md`](knowledge-platform-conventions.md), and iterate.
 
-**Scope of this playbook: apps only.** It composes capabilities and tenets that already
+**Scope of this playbook: apps only.** It composes capabilities and invariants that already
 exist. It never adds, weakens or removes one. If the app needs a verb the platform does
 not have, stop and run
 [`playbook-extend-the-platform.md`](playbook-extend-the-platform.md) instead — that is a
@@ -27,12 +27,12 @@ A paragraph of intent in risk terms, e.g.:
    policy it already declares (`scope`, `maxAmountCents`, `maxPerHour`, `approval`), and anything
    the screen needs that nothing provides. Those declared numbers are risk decisions the user has
    already made: build the app around them rather than asking for them to be changed.
-4. **If a verb is missing, stop.** Adding a capability, a `DataSource` method, a scope, a tenet
+4. **If a verb is missing, stop.** Adding a capability, a `DataSource` method, a scope, an invariant
    or a migration is tier-2 work. Report which verb is missing and what policy it would need,
    and switch to [`playbook-extend-the-platform.md`](playbook-extend-the-platform.md). Do not
    work around it in app code.
-5. **Read the tenets** the flows you are building depend on: `GET /api/tenets`, or
-   `packages/kernel/src/tenets.ts`. They tell you what the platform already guarantees, so you
+5. **Read the invariants** the flows you are building depend on: `GET /api/invariants`, or
+   `packages/kernel/src/invariants.ts`. They tell you what the platform already guarantees, so you
    do not re-check it in the app.
 6. **Write the app** in `apps/console/src/apps/<Name>.tsx`. It may import `../client.ts`,
    `../format.ts`, `../Outcome.tsx` and `./manifest.ts` and nothing else from the platform.
@@ -73,11 +73,11 @@ A paragraph of intent in risk terms, e.g.:
 - Never add a capability that takes a table name, a SQL fragment, or an arbitrary filter object.
 - Never edit `packages/kernel`, `packages/db`, `packages/capabilities`, `packages/sdk`, a
   migration, or the check scripts. Those are tier 2.
-- Never treat a `halted` or `tenet_violation` outcome as a bug to route around. Surface it: the
+- Never treat a `halted` or `invariant_violation` outcome as a bug to route around. Surface it: the
   platform is telling the user it can no longer prove the operation is safe.
 
 ## Outcomes an app must render
 
 `ok`, `replayed`, `pending_approval`, `denied_scope`, `denied_limit`, `rate_limited`,
-`invalid_input`, `not_found`, `halted`, `tenet_violation`, `error`. All of them are normal
+`invalid_input`, `not_found`, `halted`, `invariant_violation`, `error`. All of them are normal
 platform behaviour; none of them should reach the user as a stack trace.
