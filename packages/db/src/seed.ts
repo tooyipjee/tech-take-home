@@ -11,6 +11,73 @@ const users = [
   { id: "u_admin_2", email: "dana@fin.example", name: "Dana Whitfield", role: "admin" },
 ];
 
+/**
+ * The switches the platform ships with. `protected` is set here, by a reviewed change,
+ * because it is a claim about what the feature touches — payments, limits or a
+ * customer-facing money flow — and no runtime act may set it.
+ *
+ * No flag is seeded with a history: a change row is an effect, and an effect with no
+ * audited invocation behind it is exactly what the invariants forbid.
+ */
+const flags = [
+  {
+    id: "flag_instant_payouts",
+    key: "payments.instant_payouts",
+    description: "Settle merchant payouts immediately instead of on the nightly run.",
+    enabled: false,
+    protected: true,
+  },
+  {
+    id: "flag_soft_decline_retry",
+    key: "payments.retry_on_soft_decline",
+    description: "Retry a card authorisation once when the issuer soft-declines it.",
+    enabled: true,
+    protected: true,
+  },
+  {
+    id: "flag_velocity_ceiling",
+    key: "limits.dynamic_velocity_ceiling",
+    description: "Raise a customer's daily transfer ceiling from their own history.",
+    enabled: false,
+    protected: true,
+  },
+  {
+    id: "flag_fee_preview",
+    key: "checkout.fee_preview",
+    description: "Show the fee breakdown to the customer before they confirm a transfer.",
+    enabled: true,
+    protected: true,
+  },
+  {
+    id: "flag_reviewer_hints",
+    key: "onboarding.reviewer_hints",
+    description: "Show inline guidance on the review queue for newly trained reviewers.",
+    enabled: true,
+    protected: false,
+  },
+  {
+    id: "flag_bulk_claim",
+    key: "queue.bulk_claim",
+    description: "Let a reviewer claim several queue cases in one action.",
+    enabled: false,
+    protected: false,
+  },
+  {
+    id: "flag_dark_mode",
+    key: "console.dark_mode",
+    description: "Dark theme for the internal console and its apps.",
+    enabled: false,
+    protected: false,
+  },
+  {
+    id: "flag_export_csv",
+    key: "audit.csv_export",
+    description: "Offer a CSV download of the audit log to anyone who can read it.",
+    enabled: true,
+    protected: false,
+  },
+];
+
 interface SeedCase {
   id: string;
   reference: string;
@@ -276,6 +343,20 @@ export async function seed(): Promise<void> {
       );
     }
 
+    for (const flag of flags) {
+      await client.query(
+        // `enabled` is deliberately not re-seeded on conflict: where a flag already
+        // exists its state is the state its recorded flips left it in, and putting it
+        // back by hand is the thing the change history exists to make impossible.
+        `insert into feature_flags (id, key, description, enabled, protected)
+         values ($1, $2, $3, $4, $5)
+         on conflict (id) do update
+           set key = excluded.key, description = excluded.description,
+               protected = excluded.protected`,
+        [flag.id, flag.key, flag.description, flag.enabled, flag.protected],
+      );
+    }
+
     for (const item of cases) {
       await client.query(
         `insert into kyc_cases
@@ -347,6 +428,7 @@ export async function resetAndSeed(): Promise<void> {
       `truncate audit_log, approvals, idempotency_keys,
                 kyc_case_events, kyc_case_decisions, kyc_pii_disclosures, kyc_sars,
                 kyc_documents, kyc_screening_hits, kyc_risk_signals, kyc_cases,
+                feature_flag_changes, feature_flags,
                 capability_halts, invariant_runs
        restart identity cascade`,
     );

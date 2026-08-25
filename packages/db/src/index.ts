@@ -11,6 +11,8 @@ export type {
   CaseStatus,
   CaseSummary,
   DataSource,
+  FeatureFlag,
+  FlagChange,
   MaskedIdentity,
   RiskBand,
   RiskSignal,

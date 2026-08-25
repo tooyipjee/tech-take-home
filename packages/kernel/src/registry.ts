@@ -14,6 +14,9 @@ const effectSchema = z.object({
     .object({ table: identifier, via: identifier, amountColumn: identifier })
     .optional(),
   oncePerSubject: z.boolean().optional(),
+  tracksState: z
+    .object({ column: identifier, fromColumn: identifier, toColumn: identifier })
+    .optional(),
 });
 
 const writePolicySchema = z.object({
@@ -101,6 +104,13 @@ export function defineWrite<I extends z.ZodTypeAny, O>(
   if (policy.approval.mode === "derived_from_subject" && !policy.subject) {
     throw new PolicyDeclarationError(
       `write capability ${capability.name} derives approval from its subject but declares no subject table`,
+    );
+  }
+  // A tracked state lives on the subject row, so the subject has to be named for the
+  // derived invariant to be able to compare the two.
+  if (policy.effect?.tracksState && !policy.subject) {
+    throw new PolicyDeclarationError(
+      `write capability ${capability.name} tracks a state on its subject but declares no subject table`,
     );
   }
   // Every write lands somewhere. Without an effect table there is nothing to prove the

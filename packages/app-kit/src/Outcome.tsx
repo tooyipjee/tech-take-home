@@ -9,6 +9,7 @@ const TONE: Record<string, string> = {
   rate_limited: "bad",
   invalid_input: "bad",
   not_found: "bad",
+  conflict: "warn",
   halted: "bad",
   invariant_violation: "bad",
   error: "bad",
@@ -23,6 +24,7 @@ const EXPLAIN: Record<string, string> = {
   rate_limited: "Blocked by the per-hour ceiling declared on the capability.",
   invalid_input: "Rejected by the capability's input schema.",
   not_found: "No such capability in the registry.",
+  conflict: "The record moved since it was read, so nothing was written.",
   halted: "An invariant guarding this capability is violated, so it is refusing writes until an admin clears it.",
   invariant_violation:
     "The effect broke a platform invariant and was rolled back inside the transaction — nothing committed.",

@@ -12,7 +12,8 @@ surface · `packages/db` migrations, seed and `DataSource` · `packages/sdk` the
 an app may use, alongside `packages/app-kit` (bound client, identity switcher, outcome banner,
 stylesheet) · `apps/api` Fastify host · `apps/console` the platform's own screens plus a launcher.
 An app is a folder under `apps/` with its own Vite config, port, `tsconfig.json` and `app.json` —
-today `apps/kyc-review` (the review queue) and `apps/sar-desk` (filing SARs, countersigned).
+today `apps/kyc-review` (the review queue), `apps/sar-desk` (filing SARs, countersigned) and
+`apps/feature-flags` (turning product features on and off, protected ones countersigned).
 
 **A new app is a new folder, and nothing else.** Nothing lists the apps: `npm run dev`,
 `npm run build:apps`, `npm run typecheck`, the boundary check (`scripts/apps.mjs`) and the console
@@ -53,7 +54,7 @@ the expensive one (amount ceiling, threshold approval, conservation invariant).
 **Invariants.** `packages/kernel/src/invariants.ts` generates SQL statements that must return no rows,
 from two sources: platform axioms, and each write capability's declaration — `maxAmountCents`,
 `approval`, `maxPerHour`, `idempotent` and `effect` (the table the row lands in, the amount
-column, the live-row predicate, the pool it draws down, `oncePerSubject`). Declaring a write
+column, the live-row predicate, the pool it draws down, `oncePerSubject`, `tracksState`). Declaring a write
 derives its rules; one without an `effect` refuses to register. Never hand-write an invariant for a
 rule a declaration could express. They are checked as postconditions inside the writing transaction, by a reconciler every 15s,
 and — where expressible — by database triggers. A violated invariant halts the capabilities it
@@ -67,6 +68,14 @@ declare `scope`, `idempotent: true`, `limits`, `approval`, `approverScope`, an `
 subject row in SQL which scope must countersign, so a requirement that depends on the record is
 still the platform's to decide; `previewApproval()` gives an app the same answer for display. Malformed or unprovable declarations throw at boot.
 
+**A state a write moves** is declared with `effect.tracksState: { column, fromColumn, toColumn }`:
+the effect table records the transition, the subject column is a projection of it. That derives two
+more statements — the subject equals the last recorded `toColumn`, and no change starts from a
+value the change before it did not leave — so a state edited outside the runtime is caught even if
+it is edited back. `flags.flip` is the worked example; a subject with no recorded change yet is
+covered by a database trigger rather than by the invariant, because there is nothing to compare it
+to. Never track a state by hand-writing the comparison.
+
 **Data access.** Handlers receive `ctx.data`, a `DataSource` bound to the runtime's transaction
 *and* to the invocation: the platform stamps `invocation_id` on every effect row, so a handler
 cannot write a row that is not attributable to an audited invocation. New queries go in
@@ -78,15 +87,15 @@ cannot write a row that is not attributable to an audited invocation. New querie
 
 **Seeded principals.** `u_agent` (agent: `kyc:read`, `kyc:pii`, `kyc:review`), `u_supervisor`
 (supervisor: adds `kyc:decide`, `approvals:*`, `audit:read`), `u_admin` and `u_admin_2` (admins:
-add `kyc:sar` and `invariants:clear`; two of them so a compliance approval has a second pair of
-eyes). All roles have `invariants:read`. Every app header switches acting user; the API takes
+add `kyc:sar`, `flags:write` and `invariants:clear`; two of them so a compliance approval or a
+protected flag flip has a second pair of eyes). All roles have `invariants:read` and `flags:read`. Every app header switches acting user; the API takes
 `x-platform-user`.
 
 **Deciding an approval** needs `approvals:decide` *and* the capability's declared `approverScope`,
 and never the requester themself.
 
 **Commands.** `npm run setup` (Postgres + migrate + seed) · `npm run dev` (api :8080 · console
-:5173 · kyc :5174 · sar desk :5177 — every app folder, discovered; one alone with
+:5173 · kyc :5174 · sar desk :5177 · flags :5178 — every app folder, discovered; one alone with
 `npx vite --config apps/<name>/vite.config.ts` plus `npm run dev:api`) · `npm run lint`
 (boundary, manifest and tier checks) · `npm run typecheck` (the platform, then each app against
 its own tsconfig) · `npm test` ·
