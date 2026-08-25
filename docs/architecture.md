@@ -9,6 +9,7 @@ flowchart TB
   subgraph appsbox["apps/ — browser UI, no database access"]
     kyc["kyc-review<br/>generated"]
     sar["sar-desk<br/>generated"]
+    flags["feature-flags<br/>generated"]
     console["console<br/>the platform's own screens<br/>+ the launcher"]
   end
 
@@ -36,6 +37,7 @@ flowchart TB
 
   kyc --> sdk
   sar --> sdk
+  flags --> sdk
   console --> sdk
   sdk --> api
   api --> p1
