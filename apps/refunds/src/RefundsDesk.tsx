@@ -377,7 +377,7 @@ export function RefundsDesk({ actorId }: { actorId: string }) {
               ? "A supervisor other than you will have to sign this off before the customer is owed anything."
               : overThreshold
                 ? "Amounts above the limit are held for a supervisor."
-                : "This one is yours to make."}
+                : `Amounts up to ${money(limits.approvalAboveCents)} need no second signature.`}
           </p>
           <p className="hint">
             <input
@@ -404,7 +404,14 @@ export function RefundsDesk({ actorId }: { actorId: string }) {
               onChange={(event) => setReason(event.target.value)}
             />
           </p>
-          <button className="action" disabled={busy} onClick={() => void issue(selected)}>
+          {/* Enabled for anyone who has typed something, whether or not the runtime will
+              allow it: the refusal belongs on screen. Only an untouched form is inert, so a
+              second click after a recorded refund does not submit an emptied one. */}
+          <button
+            className="action"
+            disabled={busy || (amount.trim() === "" && reason.trim() === "")}
+            onClick={() => void issue(selected)}
+          >
             Record refund
           </button>
         </>

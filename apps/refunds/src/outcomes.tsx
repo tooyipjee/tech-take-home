@@ -84,7 +84,7 @@ export function explain(result: InvokeResult<unknown>, limits: DeskLimits): Expl
       return {
         tone: "refused",
         headline: "Something is missing",
-        detail: result.message ?? "Check the amount and the reason, then try again.",
+        detail: inPlainWords(result.message),
       };
     case "not_found":
       return {
@@ -125,6 +125,28 @@ export function explain(result: InvokeResult<unknown>, limits: DeskLimits): Expl
           "failing, the payments team needs to know.",
       };
   }
+}
+
+/** The form's fields, as the person filling them in would name them. */
+const FIELDS: Record<string, string> = {
+  amountCents: "Enter the amount to refund.",
+  reason: "Say why the customer is getting this money back, in at least ten characters.",
+  paymentId: "Pick the payment being refunded.",
+};
+
+/**
+ * A validation message arrives as `field: complaint`, which puts the field's name in the
+ * declaration's spelling on screen. The field is what the agent needs to know; its
+ * internal name is not, so each clause is answered in the words of the form.
+ */
+function inPlainWords(message: string | undefined): string {
+  const fallback = "Check the amount and the reason, then try again.";
+  if (!message) return fallback;
+  const asked = message
+    .split(";")
+    .map((clause) => FIELDS[clause.split(":")[0]?.trim() ?? ""])
+    .filter((sentence): sentence is string => sentence !== undefined);
+  return asked.length === 0 ? fallback : [...new Set(asked)].join(" ");
 }
 
 const CLASS: Record<Tone, string> = { ok: "ok", held: "warn", refused: "bad" };
