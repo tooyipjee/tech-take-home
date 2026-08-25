@@ -91,7 +91,7 @@ statements, so a declaration change shows up as a failing snapshot — asserts t
 proofs are generated from the declared columns rather than hand-written, and that a write
 tracking a state without naming the row it lives on is refused at registration.
 
-`packages/kernel/test/db/flags.test.ts` attacks the new guarantees against Postgres:
+The feature-flag section of `packages/kernel/test/db/invariants.test.ts` attacks the new guarantees against Postgres:
 
 - An ordinary flip lands immediately and joins to exactly one audit row, actor and time.
 - An agent and a KYC lead are refused `flags.flip` and the refusals are on the record,
