@@ -20,5 +20,6 @@
       "@platform/sdk": ["packages/sdk/src/index.ts"]
     }
   },
-  "include": ["packages/**/*.ts", "packages/**/*.tsx", "apps/**/*.ts", "apps/**/*.tsx", "scripts/**/*.mjs"]
+  "include": ["packages/**/*.ts", "packages/**/*.tsx", "apps/**/*.ts", "apps/**/*.tsx", "scripts/**/*.mjs"],
+  "exclude": ["apps/kyc-review"]
 }

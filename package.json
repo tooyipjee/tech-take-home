@@ -15,7 +15,7 @@
     "dev": "concurrently -n api,console -c cyan,magenta \"npm:dev:api\" \"npm:dev:console\"",
     "dev:api": "tsx watch apps/api/src/main.ts",
     "dev:console": "vite --config apps/console/vite.config.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && npm run typecheck -w @align/kyc-review",
     "lint": "node scripts/check-boundaries.mjs",
     "test": "tsx --test packages/kernel/test/*.test.ts"
   },

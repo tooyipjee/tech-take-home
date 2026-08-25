@@ -29,7 +29,11 @@ npm run setup     # starts Postgres in Docker, migrates, seeds
 npm run dev       # api on :8080, console on :5173
 ```
 
-Open <http://localhost:5173> and use the **acting as** switcher in the header to change principal.
+Open <http://localhost:5173>. You land on the **app launcher**: every registered app as a tile,
+offered or locked according to the signed-in principal's scopes. The **signed in as** switcher in
+the header is a mock identity provider — it stands in for an OAuth2/OIDC sign-in (swapping it for
+the real thing changes `resolvePrincipal` and nothing else). Tile availability is presentation
+only; the runtime re-checks scopes on every capability call.
 
 ### The demo, in five clicks
 
