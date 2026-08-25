@@ -85,11 +85,59 @@ export interface CaseFilter {
   limit: number;
 }
 
+export interface PaymentSummary {
+  id: string;
+  reference: string;
+  customerId: string;
+  customerName: string;
+  amountCents: number;
+  /** Live refunds already issued against this payment. */
+  refundedCents: number;
+  /** What is left of the payment: the pool a further refund draws from. */
+  remainingCents: number;
+  refundCount: number;
+  instrument: string;
+  descriptor: string;
+  status: string;
+  capturedAt: string;
+}
+
+/** One refund already issued against a payment, and who is answerable for it. */
+export interface RefundRecord {
+  id: string;
+  amountCents: number;
+  reason: string;
+  at: string;
+  requestedBy: string;
+  approvedBy: string | null;
+  status: string;
+}
+
+export interface PaymentDetail extends PaymentSummary {
+  customerEmail: string;
+  refunds: RefundRecord[];
+  /** The rest of this customer's payments, so a refund is judged in context. */
+  customerPayments: PaymentSummary[];
+}
+
+export interface PaymentFilter {
+  query?: string;
+  customerId?: string;
+  limit: number;
+}
+
 /**
  * Thrown when the caller decided on a case that has since moved. It is a refusal, not
  * a crash: the runtime turns it into an outcome and an audit row, and no effect lands.
  */
 export class StaleRevisionError extends Error {}
+
+/**
+ * Thrown when the record the caller named does not exist. Also a refusal rather than a
+ * crash: "there is no such payment" is an answer, and one worth having in the audit log
+ * under its own outcome instead of hidden among genuine failures.
+ */
+export class NotFoundError extends Error {}
 
 /**
  * The only door capability handlers have to business data. Handlers never see a
@@ -140,6 +188,19 @@ export interface DataSource {
     actorId: string;
     enforceRevision: boolean;
   }): Promise<CaseDetail>;
+  listPayments(filter: PaymentFilter): Promise<PaymentSummary[]>;
+  getPayment(paymentId: string): Promise<PaymentDetail | null>;
+  /**
+   * Records the intent to refund. Refuses, rather than trimming, a refund that would
+   * take the payment past its own amount: the caller was looking at a balance that has
+   * since moved, and silently refunding less than asked is its own incident.
+   */
+  issueRefund(input: {
+    paymentId: string;
+    amountCents: number;
+    reason: string;
+    actorId: string;
+  }): Promise<PaymentDetail>;
 }
 
 interface CaseRow {
@@ -178,6 +239,56 @@ const caseSelect = `
                   where a.status = 'pending' and a.input->>'caseId' = c.id) as awaiting_approval
     from kyc_cases c
 `;
+
+interface PaymentRow {
+  id: string;
+  reference: string;
+  customer_id: string;
+  customer_name: string;
+  customer_email: string;
+  amount_cents: string;
+  instrument: string;
+  descriptor: string;
+  status: string;
+  captured_at: Date;
+  refunded_cents: string;
+  refund_count: string;
+}
+
+/**
+ * What a payment has left is derived from the live refunds against it, never stored:
+ * a balance column and a refund table are two answers to one question, and the day
+ * they disagree is the day the ceiling stops meaning anything.
+ */
+const paymentSelect = `
+  select p.*,
+         coalesce((select sum(r.amount_cents) from refunds r
+                    where r.payment_id = p.id and r.status = 'issued'), 0) as refunded_cents,
+         (select count(*) from refunds r
+           where r.payment_id = p.id and r.status = 'issued') as refund_count
+    from payments p
+`;
+
+const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+function toPayment(row: PaymentRow): PaymentSummary {
+  const amountCents = Number(row.amount_cents);
+  const refundedCents = Number(row.refunded_cents);
+  return {
+    id: row.id,
+    reference: row.reference,
+    customerId: row.customer_id,
+    customerName: row.customer_name,
+    amountCents,
+    refundedCents,
+    remainingCents: amountCents - refundedCents,
+    refundCount: Number(row.refund_count),
+    instrument: row.instrument,
+    descriptor: row.descriptor,
+    status: row.status,
+    capturedAt: row.captured_at.toISOString(),
+  };
+}
 
 const maskName = (name: string) =>
   name
@@ -488,6 +599,125 @@ export function createDataSource(
       await bumpRevision(caseId, { status: "escalated" });
       await appendEvent(caseId, actorId, `Filed a suspicious activity report: ${narrative}`);
       return detail(caseId);
+    },
+
+    async listPayments({ query, customerId, limit }) {
+      const { rows } = await client.query<PaymentRow>(
+        `${paymentSelect}
+          where ($1::text is null or p.customer_id = $1)
+            and ($2::text is null or lower(p.reference || ' ' || p.customer_name || ' '
+                                           || p.customer_email || ' ' || p.descriptor) like $2)
+          order by p.captured_at desc
+          limit $3`,
+        [
+          customerId ?? null,
+          query ? `%${query.trim().toLowerCase()}%` : null,
+          limit,
+        ],
+      );
+      return rows.map(toPayment);
+    },
+
+    async getPayment(paymentId) {
+      const { rows } = await client.query<PaymentRow>(`${paymentSelect} where p.id = $1`, [
+        paymentId,
+      ]);
+      const row = rows[0];
+      if (!row) return null;
+
+      // Who approved a refund is not stored on the refund: it is the approval the
+      // audited invocation carried, so it is read back through the audit row rather
+      // than duplicated where a handler could write anything it liked.
+      const [refunds, history] = await Promise.all([
+        client.query<{
+          id: string;
+          amount_cents: string;
+          reason: string;
+          at: Date;
+          status: string;
+          requested_by_name: string;
+          approved_by_name: string | null;
+        }>(
+          `select r.id, r.amount_cents, r.reason, r.at, r.status,
+                  u.name as requested_by_name,
+                  (select d.name from audit_log a
+                     join approvals ap on ap.id = a.approval_id
+                     join platform_users d on d.id = ap.decided_by
+                    where a.invocation_id = r.invocation_id
+                    limit 1) as approved_by_name
+             from refunds r
+             join platform_users u on u.id = r.requested_by
+            where r.payment_id = $1
+            order by r.at, r.id`,
+          [paymentId],
+        ),
+        client.query<PaymentRow>(
+          `${paymentSelect} where p.customer_id = $1 and p.id <> $2 order by p.captured_at desc limit 20`,
+          [row.customer_id, paymentId],
+        ),
+      ]);
+
+      return {
+        ...toPayment(row),
+        customerEmail: row.customer_email,
+        refunds: refunds.rows.map((refund) => ({
+          id: refund.id,
+          amountCents: Number(refund.amount_cents),
+          reason: refund.reason,
+          at: refund.at.toISOString(),
+          status: refund.status,
+          requestedBy: refund.requested_by_name,
+          approvedBy: refund.approved_by_name,
+        })),
+        customerPayments: history.rows.map(toPayment),
+      };
+    },
+
+    async issueRefund({ paymentId, amountCents, reason, actorId }) {
+      // The payment row is taken first and on its own, so a second refund arriving at
+      // the same payment waits here. The balance is then read in a later statement,
+      // which under read committed sees whatever the refund ahead of it committed —
+      // reading both at once would let the waiter act on the snapshot it queued with
+      // and hand two agents the same headroom.
+      const locked = await client.query<{ id: string; reference: string; amount_cents: string }>(
+        "select id, reference, amount_cents from payments where id = $1 for update",
+        [paymentId],
+      );
+      const row = locked.rows[0];
+      if (!row) throw new NotFoundError(`unknown payment: ${paymentId}`);
+
+      const drawn = await client.query<{ refunded_cents: string }>(
+        `select coalesce(sum(amount_cents), 0) as refunded_cents from refunds
+          where payment_id = $1 and status = 'issued'`,
+        [paymentId],
+      );
+      const remaining = Number(row.amount_cents) - Number(drawn.rows[0]?.refunded_cents ?? 0);
+      if (amountCents > remaining) {
+        throw new StaleRevisionError(
+          remaining <= 0
+            ? `${row.reference} is already refunded in full`
+            : `only ${dollars(remaining)} of ${row.reference} is left to refund`,
+        );
+      }
+
+      await client.query(
+        `insert into refunds
+           (id, payment_id, amount_cents, reason, status, requested_by, invocation_id, capability)
+         values ($1, $2, $3, $4, 'issued', $5, $6, $7)`,
+        [
+          `ref_${invocationId.slice(0, 12)}`,
+          paymentId,
+          amountCents,
+          reason,
+          actorId,
+          invocationId,
+          capability,
+        ],
+      );
+
+      const updated = await api.getPayment(paymentId);
+      if (!updated) throw new NotFoundError(`unknown payment: ${paymentId}`);
+      return updated;
     },
   };
 

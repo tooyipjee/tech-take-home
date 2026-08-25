@@ -12,6 +12,8 @@ export type Outcome =
   | "rate_limited"
   | "invalid_input"
   | "not_found"
+  /** The record moved under the caller: a stale revision, or a pool already drawn down. */
+  | "conflict"
   /** An invariant guarding this capability is violated; it is refusing writes. */
   | "halted"
   /** The effect would have broken a platform invariant and was rolled back. */

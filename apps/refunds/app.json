@@ -1,0 +1,9 @@
+{
+  "id": "refunds",
+  "name": "Refunds desk",
+  "description": "Look up a customer's payment, see what has already been refunded against it, and record a full or partial refund for the payments team.",
+  "folder": "apps/refunds",
+  "url": "http://localhost:5175",
+  "scopes": ["refunds:read", "refunds:issue", "refunds:approve", "approvals:read", "approvals:decide"],
+  "requiredScopes": ["refunds:issue"]
+}

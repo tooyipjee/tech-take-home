@@ -12,7 +12,8 @@ surface · `packages/db` migrations, seed and `DataSource` · `packages/sdk` the
 an app may use, alongside `packages/app-kit` (bound client, identity switcher, outcome banner,
 stylesheet) · `apps/api` Fastify host · `apps/console` the platform's own screens plus a launcher.
 An app is a folder under `apps/` with its own Vite config, port, `tsconfig.json` and `app.json` —
-today `apps/kyc-review` (the review queue) and `apps/sar-desk` (filing SARs, countersigned).
+today `apps/kyc-review` (the review queue), `apps/sar-desk` (filing SARs, countersigned) and
+`apps/refunds` (the refunds desk: payment history, refunds already made, and a supervisor queue).
 
 **A new app is a new folder, and nothing else.** Nothing lists the apps: `npm run dev`,
 `npm run build:apps`, `npm run typecheck`, the boundary check (`scripts/apps.mjs`) and the console
@@ -46,9 +47,11 @@ away from doing it — extending `apps/kyc-review` or `apps/sar-desk` beats a se
 same verbs. Only then classify. Only existing verbs, new UI → tier 1. A capability, scope, table,
 column, seed row, ceiling, rate or approval threshold that does not exist → tier 2 first, then
 tier 1 for the screen. Because the repository has exactly one domain (KYC), *any* new domain —
-refunds, feature flags, chargebacks — starts at tier 2; see `docs/devin/demo-two-apps.md`, which
-fixes feature flags as the cheap extension (state change, no conserved quantity) and refunds as
-the expensive one (amount ceiling, threshold approval, conservation invariant).
+feature flags, chargebacks, disbursements — starts at tier 2; see `docs/devin/demo-two-apps.md`,
+which fixes feature flags as the cheap extension (state change, no conserved quantity) and refunds
+as the expensive one (amount ceiling, threshold approval, conservation invariant). Refunds is now
+built: `refunds.issue` is the worked example of the expensive shape, and
+`docs/platform-changes/0008-refunds-are-a-conserved-quantity.md` records what it cost.
 
 **Invariants.** `packages/kernel/src/invariants.ts` generates SQL statements that must return no rows,
 from two sources: platform axioms, and each write capability's declaration — `maxAmountCents`,
@@ -70,23 +73,32 @@ still the platform's to decide; `previewApproval()` gives an app the same answer
 **Data access.** Handlers receive `ctx.data`, a `DataSource` bound to the runtime's transaction
 *and* to the invocation: the platform stamps `invocation_id` on every effect row, so a handler
 cannot write a row that is not attributable to an audited invocation. New queries go in
-`packages/db/src/datasource.ts`, never inline in a handler.
+`packages/db/src/datasource.ts`, never inline in a handler. A handler that draws down a conserved
+pool must `select ... for update` the pool row *before* reading what has been drawn from it, in a
+separate statement: one combined query can be planned against a snapshot taken before the lock was
+granted, so two concurrent callers both read a stale remainder and the second one only fails at the
+trigger — `conflict` is the answer the caller deserves, `error` is what a stale read produces.
+`NotFoundError` means the subject does not exist (`not_found`); `StaleRevisionError` means it moved
+(`conflict`).
 
 **Outcomes an app must render.** `ok`, `replayed`, `pending_approval`, `denied_scope`,
-`denied_limit`, `rate_limited`, `invalid_input`, `not_found`, `halted`, `invariant_violation`,
-`error`.
+`denied_limit`, `rate_limited`, `invalid_input`, `not_found`, `conflict`, `halted`,
+`invariant_violation`, `error`. `conflict` is how a caller is told the record moved underneath
+them — a stale revision, or a conserved pool that was drawn down while they were reading it.
 
-**Seeded principals.** `u_agent` (agent: `kyc:read`, `kyc:pii`, `kyc:review`), `u_supervisor`
-(supervisor: adds `kyc:decide`, `approvals:*`, `audit:read`), `u_admin` and `u_admin_2` (admins:
-add `kyc:sar` and `invariants:clear`; two of them so a compliance approval has a second pair of
-eyes). All roles have `invariants:read`. Every app header switches acting user; the API takes
+**Seeded principals.** `u_agent` (agent: `kyc:read`, `kyc:pii`, `kyc:review`, `refunds:read`,
+`refunds:issue`), `u_supervisor` (supervisor: adds `kyc:decide`, `refunds:approve`, `approvals:*`,
+`audit:read`), `u_admin` and `u_admin_2` (admins: add `kyc:sar` and `invariants:clear`; two of them
+so a compliance approval has a second pair of eyes — they sign refunds off (`refunds:approve`) but
+hold no `refunds:issue`, so their refunds tile is locked and their inbox is not). All roles have
+`invariants:read`. Every app header switches acting user; the API takes
 `x-platform-user`.
 
 **Deciding an approval** needs `approvals:decide` *and* the capability's declared `approverScope`,
 and never the requester themself.
 
 **Commands.** `npm run setup` (Postgres + migrate + seed) · `npm run dev` (api :8080 · console
-:5173 · kyc :5174 — every app folder, discovered; one alone with
+:5173 · kyc :5174 · refunds :5175 · sar desk :5177 — every app folder, discovered; one alone with
 `npx vite --config apps/<name>/vite.config.ts` plus `npm run dev:api`) · `npm run lint`
 (boundary, manifest and tier checks) · `npm run typecheck` (the platform, then each app against
 its own tsconfig) · `npm test` ·
