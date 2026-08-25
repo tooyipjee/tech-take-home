@@ -1,28 +1,50 @@
 import { useEffect, useState } from "react";
 import type { PlatformUser } from "@platform/sdk";
-import { platform, setActingUser } from "./client.ts";
-import { missingScopes } from "./apps/manifest.ts";
-import { APPS } from "./apps/registry.ts";
-import { Home } from "./platform/Home.tsx";
-import { PLATFORM_VIEWS } from "./platform/views.tsx";
+import { platform, setActingUser } from "@platform/app-kit";
+import { ApprovalsInbox } from "./platform/ApprovalsInbox.tsx";
+import { AuditLog } from "./platform/AuditLog.tsx";
+import { RegistryView } from "./platform/RegistryView.tsx";
+import { InvariantsView } from "./platform/InvariantsView.tsx";
+import { Launcher } from "./Launcher.tsx";
+
+/**
+ * The console is a platform surface, not an app: approvals, audit, the registry
+ * and invariant health. The apps live in `apps/*` and are launched from here.
+ */
+const TABS = [
+  { id: "apps", label: "Apps", scopes: [] },
+  { id: "approvals", label: "Approvals", scopes: ["approvals:read", "approvals:decide"] },
+  { id: "audit", label: "Audit log", scopes: ["audit:read"] },
+  { id: "registry", label: "Capability registry", scopes: ["flags:write"] },
+  { id: "invariants", label: "Invariants", scopes: ["invariants:read"] },
+] as const;
+
+type TabId = (typeof TABS)[number]["id"];
 
 export function App() {
   const [users, setUsers] = useState<PlatformUser[]>([]);
   const [userId, setUserId] = useState("u_agent");
-  const [view, setView] = useState("home");
+  const [tab, setTab] = useState<TabId>("apps");
 
   useEffect(() => {
-    platform.users().then(setUsers).catch(() => setUsers([]));
+    platform
+      .users()
+      .then(setUsers)
+      .catch(() => setUsers([]));
   }, []);
 
   const current = users.find((user) => user.id === userId);
-  const entry = [...APPS, ...PLATFORM_VIEWS].find((candidate) => candidate.id === view);
 
-  // Switching to a principal who lacks the open app's scopes returns to the
+  function locked(entry: (typeof TABS)[number]): boolean {
+    return current ? entry.scopes.some((scope) => !current.scopes.includes(scope)) : false;
+  }
+
+  // Switching to a principal who lacks the open tab's scopes returns to the
   // launcher. Cosmetic only: the runtime would deny every call regardless.
+  const active = TABS.find((entry) => entry.id === tab);
   useEffect(() => {
-    if (entry && current && missingScopes(entry, current.scopes).length > 0) setView("home");
-  }, [entry, current]);
+    if (active && locked(active)) setTab("apps");
+  });
 
   function switchUser(id: string) {
     setActingUser(id);
@@ -32,12 +54,8 @@ export function App() {
   return (
     <>
       <header className="shell">
-        <h1>
-          <button className="brand" onClick={() => setView("home")}>
-            Internal Tool Platform
-          </button>
-        </h1>
-        {entry ? <span className="badge">{entry.name}</span> : null}
+        <h1>Internal Tool Platform</h1>
+        <span className="badge">apps call capabilities, never the database</span>
         <span className="spacer" />
         {/*
           Development sign-in. Identity is a solved problem, so it is mocked:
@@ -60,15 +78,27 @@ export function App() {
         <span className="badge warn">mock identity — swaps for OAuth/OIDC</span>
       </header>
 
-      {entry ? (
-        <nav className="crumbs">
-          <button onClick={() => setView("home")}>← All apps</button>
-        </nav>
-      ) : null}
+      <nav className="tabs">
+        {TABS.map((entry) => (
+          <button
+            key={entry.id}
+            className={tab === entry.id ? "active" : ""}
+            disabled={locked(entry)}
+            title={locked(entry) ? `requires ${entry.scopes.join(", ")}` : undefined}
+            onClick={() => setTab(entry.id)}
+          >
+            {entry.label}
+          </button>
+        ))}
+      </nav>
 
       <main>
-        <section className={entry ? "panel" : "panel home"}>
-          {entry?.render ? entry.render(userId) : <Home user={current} onOpen={setView} />}
+        <section className="panel">
+          {tab === "apps" ? <Launcher user={current} /> : null}
+          {tab === "approvals" ? <ApprovalsInbox actorId={userId} /> : null}
+          {tab === "audit" ? <AuditLog actorId={userId} /> : null}
+          {tab === "registry" ? <RegistryView /> : null}
+          {tab === "invariants" ? <InvariantsView actorId={userId} /> : null}
         </section>
       </main>
     </>

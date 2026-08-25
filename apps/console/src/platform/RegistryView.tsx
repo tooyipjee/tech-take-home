@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { CapabilityDescriptor } from "@platform/sdk";
-import { platform } from "../client.ts";
+import { platform } from "@platform/app-kit";
 
 export function RegistryView() {
   const [capabilities, setCapabilities] = useState<CapabilityDescriptor[]>([]);

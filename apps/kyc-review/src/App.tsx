@@ -4,14 +4,9 @@ import { QueueView } from './views/QueueView';
 import { CaseView } from './views/CaseView';
 import { ApprovalsView } from './views/ApprovalsView';
 import { AuditView } from './views/AuditView';
+import { ROLE_LABEL } from './platform/contracts';
 
 type Tab = 'queue' | 'approvals' | 'audit';
-
-const ROLE_LABEL: Record<string, string> = {
-  kyc_reviewer: 'Reviewer',
-  kyc_lead: 'Lead',
-  compliance_officer: 'Compliance',
-};
 
 export default function App() {
   return (
@@ -63,10 +58,10 @@ function Shell() {
           <span className={`pill pill--adapter-${adapter}`}>{adapter} kernel</span>
           <label>
             Acting as
-            <select value={actor.userId} onChange={(event) => setActorId(event.target.value)}>
+            <select value={actor.id} onChange={(event) => setActorId(event.target.value)}>
               {directory.map((entry) => (
-                <option key={entry.userId} value={entry.userId}>
-                  {ROLE_LABEL[entry.role]} · {entry.displayName}
+                <option key={entry.id} value={entry.id}>
+                  {ROLE_LABEL[entry.role]} · {entry.name}
                 </option>
               ))}
             </select>
@@ -100,7 +95,6 @@ function Toasts() {
         <div key={toast.id} className={`toast toast--${toast.tone}`} onClick={() => dismissToast(toast.id)}>
           <strong>{toast.title}</strong>
           <p>{toast.detail}</p>
-          <span className="muted">audit {toast.auditId}</span>
         </div>
       ))}
     </div>

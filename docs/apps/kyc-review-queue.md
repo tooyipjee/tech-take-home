@@ -22,28 +22,45 @@ the audit log with the capability, inputs (PII-redacted), policy decision, and o
 The app may call these and nothing else. Names are stable; inputs/outputs are Zod schemas in
 `packages/capabilities/kyc`.
 
-| Capability | Effect | Scope | Approval tier | Limits | Idempotent by |
+These are the kernel's own policy shapes — `{ scope, maxRows }` for reads, `{ scope, idempotent, limits,
+approval, approverScope }` for writes — so a descriptor here can be handed to `defineRead` / `defineWrite`
+unchanged.
+
+| Capability | Kind | Scope | Approval | Limit | Idempotent by |
 | --- | --- | --- | --- | --- | --- |
-| `kyc.cases.list` | read | `kyc:read` | none | 120/min/user | — |
-| `kyc.cases.get` | read | `kyc:read` | none | 300/min/user | — |
-| `kyc.case.pii.reveal` | read (sensitive) | `kyc:pii` | none, but justification required | 20/hour/user | — |
-| `kyc.case.claim` | write | `kyc:review` | none | 1 open claim per case | `caseId + userId` |
-| `kyc.case.requestInfo` | write | `kyc:review` | none | 3 per case | `caseId + revision` |
-| `kyc.case.escalate` | write | `kyc:review` | none | 20/day/user | `caseId + revision` |
-| `kyc.case.approve` | write | `kyc:decide` | tiered (below) | 50/day/user | `caseId + revision` |
-| `kyc.case.reject` | write | `kyc:decide` | tiered (below) | 50/day/user | `caseId + revision` |
-| `kyc.case.sar.file` | write (irreversible) | `kyc:sar` | always dual, `compliance_officer` | 5/day/org | `caseId` |
+| `kyc.cases.list` | read | `kyc:read` | — | ≤100 rows | — |
+| `kyc.cases.get` | read | `kyc:read` | — | ≤1 row | — |
+| `kyc.case.pii.reveal` | write | `kyc:pii` | never, but justification required | 20/hour | `caseId + timestamp` |
+| `kyc.case.claim` | write | `kyc:review` | never | 120/hour | `caseId + userId` |
+| `kyc.case.requestInfo` | write | `kyc:review` | never | 60/hour | `caseId + revision` |
+| `kyc.case.escalate` | write | `kyc:review` | never | 20/hour | `caseId + revision` |
+| `kyc.case.approve` | write | `kyc:decide` | derived from the case (below) | 50/hour | `caseId + revision` |
+| `kyc.case.reject` | write | `kyc:decide` | derived from the case (below) | 50/hour | `caseId + revision` |
+| `kyc.case.sar.file` | write (irreversible) | `kyc:sar` | always, `kyc:sar` | 5/hour | `caseId` |
 
-### Approval tiers are a function of the case, not the button
+Unmasking PII is declared a **write** even though it returns data: the kernel meters and rate-limits
+writes, and a disclosure is an effect worth metering.
 
-The runtime resolves the tier from the case's risk band at invocation time, so a reviewer cannot lower
-it by calling a different capability:
+### The approval requirement is a function of the case, not the button
 
-- **low / medium risk** → executes immediately under the reviewer's own scope.
-- **high risk**, or any case with an unresolved sanctions/PEP hit → `pending_approval`; a second human
-  holding `kyc_lead` (or `compliance_officer` for sanctions) must approve before the effect happens.
-  The requester may never approve their own request.
-- **`kyc.case.sar.file`** → always dual approval, and it is write-once: there is no unfile capability.
+Resolved at invocation time from the case itself, so a reviewer cannot lower it by picking a different
+capability:
+
+- **low / medium risk, no unresolved hits** → executes immediately under the reviewer's own scope.
+- **high risk, or any unresolved hit** → `pending_approval`; a second human holding `kyc:decide` must
+  approve before the effect happens.
+- **unresolved OFAC / EU / UK sanctions hit** → the approver must hold `kyc:sar`.
+- **`kyc.case.sar.file`** → always approved by another `kyc:sar` holder, and write-once: there is no
+  unfile capability.
+
+The requester may never approve their own request, and the check is on user id, not display name.
+
+**This is the one thing the kernel cannot yet express.** `ApprovalRule` is `never | always |
+above_amount`, all of which are functions of the *input*; KYC's rule is a function of the *record being
+acted on*. The mock derives it in the KYC runtime and the descriptors carry it as a `derivedApproval`
+note, but registering these capabilities for real needs either a predicate rule
+(`{ mode: "derived", resolve(ctx, input) }`) or a handler that returns a required approver scope. Until
+that lands, the descriptors are honest about what the platform would and would not enforce.
 
 `pending_approval` is a first-class result the app renders, not an error. The decision is recorded as
 *requested* immediately, so the audit trail shows intent even when approval is later denied.
@@ -70,19 +87,21 @@ idempotency key derives from it, so a double-clicked approve is one effect.
 
 ## Frontend
 
-`apps/kyc-review` is a Vite + React app talking to a single typed `CapabilityClient` interface
-(`src/platform/client.ts`). Two adapters implement it:
+`apps/kyc-review` is a Vite + React app whose only platform dependency is `@platform/sdk`. It talks to a
+`PlatformClient` narrowed to KYC's capability map (`src/platform/client.ts`), so `invoke` is typed per
+capability while the transport, outcomes, approvals and audit are the platform's. Two adapters implement
+it:
 
-- **mock** (default) — an in-browser implementation of the kernel: it evaluates scope, limits,
-  idempotency, and approval tier against seeded fixtures and writes an audit log. It exists so the app
-  can be built and demoed before the API host is up, and so the policy behaviour is testable without
-  Postgres.
-- **http** — posts to the API host's `POST /v1/capabilities/:name/invoke` with the dev auth headers.
-  Selected by setting `VITE_CAPABILITY_API`.
+- **mock** (default) — an in-browser implementation of the kernel: authz → validation → limits →
+  idempotency → approval → execute → audit against seeded fixtures, returning the same `Outcome` values
+  as the real runtime. It exists so the app can be demoed before KYC capabilities are registered, and so
+  the policy behaviour is testable without Postgres.
+- **http** — `createClient()` from the SDK, which posts to `POST /api/capabilities/:name/invoke` with
+  `{ input, idempotencyKey }` and the `x-platform-user` dev identity header. Selected with `?adapter=api`.
 
-The app is written against the interface only, so switching adapters is an env var, not a refactor. Any
-divergence between the two is a bug in the mock, and the mock's policy table is copied from the spec
-above.
+Approvals and audit are read through the platform surfaces (`approvals()`, `decide()`, `audit()`) rather
+than KYC-specific capabilities, so an approval raised by this app is decided in the same inbox as a
+refund. Any divergence between the two adapters is a bug in the mock.
 
 ## What this proves about the platform
 

@@ -34,28 +34,16 @@ A paragraph of intent in risk terms, e.g.:
 5. **Read the invariants** the flows you are building depend on: `GET /api/invariants`, or
    `packages/kernel/src/invariants.ts`. They tell you what the platform already guarantees, so you
    do not re-check it in the app.
-6. **Write the app** in `apps/console/src/apps/<Name>.tsx`. It may import `../client.ts`,
-   `../format.ts`, `../Outcome.tsx` and `./manifest.ts` and nothing else from the platform.
-   Render every outcome the SDK can return — `pending_approval` and `denied_*` are normal
-   states, not errors.
-7. **Export the launcher tile** from the same file. The launcher auto-discovers every module in
-   `apps/console/src/apps/` that exports an `app` definition — do **not** edit `App.tsx`,
-   `Home.tsx` or any central list. Append to your app file:
-
-   ```tsx
-   export const app: AppDefinition = {
-     id: "disputes",                       // unique, stable
-     name: "Disputes",                     // tile title
-     description: "One sentence on what the app does and who uses it.",
-     requiredScopes: ["queue:read"],       // scopes the launcher checks to offer the tile
-     surface: "disputes.list · disputes.submitEvidence", // capabilities it calls, for the tile
-     kind: "app",
-     render: (actorId) => <Disputes actorId={actorId} />,
-   };
-   ```
-
-   `requiredScopes` is presentation only — the runtime re-checks scopes on every call. It should
-   mirror the scopes of the capabilities the app invokes.
+6. **Write the app** in its own folder, `apps/<app-name>/`. Copy the shape of
+   `apps/review-queue`: `package.json`, `index.html`, a `vite.config.ts` with an unused port,
+   `src/`, and an `app.json` describing the app (`id`, `name`, `description`, `folder`, `url`,
+   `scopes`, `requiredScopes`). It may import `@platform/sdk` and `@platform/app-kit` and nothing
+   else from the platform. Render every outcome the SDK can return — `pending_approval` and
+   `denied_*` are normal states, not errors.
+7. **Wire it up**: a `dev:<name>` script in the root `package.json` — that is all. The console
+   launcher discovers every `apps/*/app.json` automatically, so do **not** edit
+   `apps/console/src/Launcher.tsx` or any central list. The boundary check needs no wiring either;
+   it scans every folder under `apps/`.
 8. **Verify** with `npm run lint && npm run typecheck && npm test`, then exercise the app in the
    browser as each seeded role, including at least one denial and one approval path. `npm run lint`
    also fails if this change touched the platform, which is the mechanical form of the rule above.

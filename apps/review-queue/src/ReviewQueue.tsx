@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { InvokeResult } from "@platform/sdk";
-import type { AppDefinition } from "./manifest.ts";
-import { platform } from "../client.ts";
-import { OutcomeBanner } from "../Outcome.tsx";
+import { OutcomeBanner, platform } from "@platform/app-kit";
 
 interface ReviewItem {
   id: string;
@@ -83,14 +81,3 @@ export function ReviewQueue({ actorId }: { actorId: string }) {
     </>
   );
 }
-
-export const app: AppDefinition = {
-  id: "queue",
-  name: "Review queue",
-  description:
-    "Work through open review items — KYC mismatches, chargeback risk, manual reviews — and resolve or escalate them.",
-  requiredScopes: ["queue:read"],
-  surface: "queue.list · queue.resolve",
-  kind: "app",
-  render: (actorId) => <ReviewQueue actorId={actorId} />,
-};

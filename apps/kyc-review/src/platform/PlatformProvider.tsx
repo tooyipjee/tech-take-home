@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Actor, CapabilityInput, CapabilityName, CapabilityOutput } from './contracts';
-import type { CapabilityClient, CapabilityResult } from './client';
-import { createHttpCapabilityClient } from './client';
+import type { KycPlatformClient, KycResult } from './client';
+import { createHttpPlatformClient } from './client';
 import { MockKernel } from './mock/kernel';
 import { ACTOR_DIRECTORY } from './mock/fixtures';
 
@@ -11,7 +11,6 @@ export interface Toast {
   tone: 'ok' | 'held' | 'denied';
   title: string;
   detail: string;
-  auditId: string;
 }
 
 interface PlatformContextValue {
@@ -19,40 +18,50 @@ interface PlatformContextValue {
   directory: Actor[];
   setActorId: (userId: string) => void;
   adapter: 'mock' | 'http';
-  /** Version counter that changes whenever a capability mutated state, so views can refetch. */
+  client: KycPlatformClient;
+  /** Version counter that changes whenever an invocation may have moved state, so views refetch. */
   version: number;
+  bump: () => void;
   toasts: Toast[];
   dismissToast: (id: number) => void;
   invoke: <N extends CapabilityName>(
     capability: N,
     input: CapabilityInput<N>,
     options?: { idempotencyKey?: string; successMessage?: string; silent?: boolean },
-  ) => Promise<CapabilityResult<N>>;
+  ) => Promise<KycResult<N>>;
 }
 
 const PlatformContext = createContext<PlatformContextValue | null>(null);
 
-const apiBase = import.meta.env.VITE_CAPABILITY_API as string | undefined;
+/**
+ * The mock runtime is the default so the app runs with nothing else up. `?adapter=api` points the
+ * same code at the platform API host, which Vite proxies at /api — the app's only switch, because
+ * everything below `client` is the platform's.
+ */
+const useApi = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('adapter') === 'api';
 
-function createClient(actor: Actor): CapabilityClient {
-  return apiBase ? createHttpCapabilityClient(apiBase, actor) : new MockKernel(actor);
-}
+/** Outcomes the runtime can return that are refusals rather than results. */
+const REFUSED = new Set(['denied_scope', 'denied_limit', 'rate_limited', 'invalid_input', 'not_found', 'error']);
 
 export function PlatformProvider({ children }: { children: ReactNode }) {
-  const [actorId, setActorId] = useState(ACTOR_DIRECTORY[0].userId);
-  const actor = ACTOR_DIRECTORY.find((entry) => entry.userId === actorId) ?? ACTOR_DIRECTORY[0];
-  const clientRef = useRef<CapabilityClient>();
-  if (!clientRef.current) clientRef.current = createClient(actor);
+  const first = ACTOR_DIRECTORY[0] as Actor;
+  const [actorId, setActorId] = useState(first.id);
+  const actor = ACTOR_DIRECTORY.find((entry) => entry.id === actorId) ?? first;
+  const clientRef = useRef<KycPlatformClient>();
+  if (!clientRef.current) {
+    clientRef.current = useApi ? createHttpPlatformClient('/api', actor) : new MockKernel(ACTOR_DIRECTORY);
+  }
   const client = clientRef.current;
 
   const [version, setVersion] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
+  const bump = useCallback(() => setVersion((value) => value + 1), []);
 
   useEffect(() => {
     client.setActor(actor);
-    setVersion((value) => value + 1);
-  }, [client, actor]);
+    bump();
+  }, [client, actor, bump]);
 
   const pushToast = useCallback((toast: Omit<Toast, 'id'>) => {
     const id = ++toastId.current;
@@ -62,26 +71,26 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
 
   const invoke = useCallback<PlatformContextValue['invoke']>(
     async (capability, input, options) => {
-      const result = await client.invoke(capability, input, { idempotencyKey: options?.idempotencyKey });
-      const mutating = capability.startsWith('kyc.case.') || capability.startsWith('kyc.approvals.decide');
-      if (mutating) setVersion((value) => value + 1);
+      const result = (await client.invoke(capability, input, options?.idempotencyKey)) as KycResult<
+        typeof capability
+      >;
+      if (capability.startsWith('kyc.case.')) bump();
       if (!options?.silent) {
-        if (result.status === 'denied') {
+        if (REFUSED.has(result.outcome)) {
           pushToast({
             tone: 'denied',
-            title: `Denied · ${result.code.replace(/_/g, ' ')}`,
-            detail: result.message,
-            auditId: result.auditId,
+            title: result.outcome.replace(/_/g, ' '),
+            detail: result.message ?? capability,
           });
-        } else if (result.status === 'pending_approval') {
-          pushToast({ tone: 'held', title: 'Held for approval', detail: result.message, auditId: result.auditId });
+        } else if (result.outcome === 'pending_approval') {
+          pushToast({ tone: 'held', title: 'Held for approval', detail: result.message ?? capability });
         } else if (options?.successMessage) {
-          pushToast({ tone: 'ok', title: options.successMessage, detail: capability, auditId: result.auditId });
+          pushToast({ tone: 'ok', title: options.successMessage, detail: capability });
         }
       }
       return result;
     },
-    [client, pushToast],
+    [client, pushToast, bump],
   );
 
   const value = useMemo<PlatformContextValue>(
@@ -90,12 +99,14 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
       directory: ACTOR_DIRECTORY,
       setActorId,
       adapter: client.kind,
+      client,
       version,
+      bump,
       toasts,
       dismissToast: (id) => setToasts((current) => current.filter((item) => item.id !== id)),
       invoke,
     }),
-    [actor, client.kind, version, toasts, invoke],
+    [actor, client, version, bump, toasts, invoke],
   );
 
   return <PlatformContext.Provider value={value}>{children}</PlatformContext.Provider>;
@@ -130,12 +141,12 @@ export function useCapability<N extends CapabilityName>(
     invoke(capability, JSON.parse(serialized) as CapabilityInput<N>, { silent: true })
       .then((result) => {
         if (cancelled) return;
-        if (result.status === 'ok') {
-          setData(result.output);
+        if (result.outcome === 'ok' || result.outcome === 'replayed') {
+          setData(result.result ?? null);
           setError(null);
         } else {
           setData(null);
-          setError(result.status === 'denied' ? result.message : result.message);
+          setError(result.message ?? result.outcome);
         }
       })
       .finally(() => {
@@ -147,4 +158,30 @@ export function useCapability<N extends CapabilityName>(
   }, [capability, serialized, enabled, invoke, version]);
 
   return { data, loading, error };
+}
+
+/** Reads a platform surface (approvals, audit, registry) that is not a KYC capability. */
+export function usePlatformData<T>(load: (client: KycPlatformClient) => Promise<T>, deps: unknown[] = []) {
+  const { client, version } = usePlatform();
+  const [data, setData] = useState<T | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    load(client)
+      .then((result) => {
+        if (cancelled) return;
+        setData(result);
+        setError(null);
+      })
+      .catch((caught: Error) => {
+        if (!cancelled) setError(caught.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, version, ...deps]);
+
+  return { data, error };
 }

@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ApprovalSummary, InvokeResult } from "@platform/sdk";
-import { platform } from "../client.ts";
-import { money } from "../format.ts";
-import { OutcomeBanner } from "../Outcome.tsx";
+import { money, OutcomeBanner, platform } from "@platform/app-kit";
 
 export function ApprovalsInbox({ actorId }: { actorId: string }) {
   const [approvals, setApprovals] = useState<ApprovalSummary[]>([]);

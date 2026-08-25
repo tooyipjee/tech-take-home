@@ -1,0 +1,9 @@
+{
+  "id": "refunds",
+  "name": "Refunds",
+  "description": "Issue refunds against captured payments, under the declared ceiling and approval rule.",
+  "folder": "apps/refunds",
+  "url": "http://localhost:5175",
+  "scopes": ["refunds:read", "refunds:write"],
+  "requiredScopes": ["refunds:read", "refunds:write"]
+}

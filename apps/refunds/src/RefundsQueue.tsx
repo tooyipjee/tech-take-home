@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { InvokeResult } from "@platform/sdk";
-import type { AppDefinition } from "./manifest.ts";
-import { platform } from "../client.ts";
-import { money } from "../format.ts";
-import { OutcomeBanner } from "../Outcome.tsx";
+import { money, OutcomeBanner, platform } from "@platform/app-kit";
 
 /**
  * An application. It knows two capability names and nothing else: no database,
@@ -123,14 +120,3 @@ export function RefundsQueue({ actorId }: { actorId: string }) {
     </>
   );
 }
-
-export const app: AppDefinition = {
-  id: "refunds",
-  name: "Refunds",
-  description:
-    "Issue refunds against settled payments. Small amounts execute instantly; large ones are parked for approval by the runtime.",
-  requiredScopes: ["refunds:read", "refunds:write"],
-  surface: "refunds.listRefundable · refunds.issue",
-  kind: "app",
-  render: (actorId) => <RefundsQueue actorId={actorId} />,
-};
