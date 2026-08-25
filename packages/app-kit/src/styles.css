@@ -50,14 +50,47 @@ nav.tabs button.active {
   color: var(--text);
 }
 
+nav.tabs button:disabled { opacity: 0.45; cursor: not-allowed; }
+
 main { padding: 0 20px 40px; }
 
 section.panel {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 0 10px 10px 10px;
+  border-radius: 10px;
+  margin-top: 10px;
   padding: 18px;
 }
+
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+button.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+
+button.tile:hover:not(:disabled) { border-color: var(--accent); }
+button.tile.locked { opacity: 0.55; cursor: not-allowed; }
+
+.tile-head { display: flex; align-items: center; gap: 8px; }
+.tile-name { font-size: 14px; font-weight: 600; flex: 1; }
+.tile-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.tile-foot code { font-size: 11px; }
+.tile-missing { font-size: 11px; color: var(--muted); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.tile-missing code { color: var(--bad); }
 
 h2 { font-size: 14px; margin: 0 0 4px; }
 p.hint { color: var(--muted); font-size: 12px; margin: 0 0 16px; }

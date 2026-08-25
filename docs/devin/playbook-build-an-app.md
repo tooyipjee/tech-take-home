@@ -35,13 +35,17 @@ A paragraph of intent in risk terms, e.g.:
    `packages/kernel/src/invariants.ts`. They tell you what the platform already guarantees, so you
    do not re-check it in the app.
 6. **Write the app** in its own folder, `apps/<app-name>/`. Copy the shape of
-   `apps/review-queue`: `package.json`, `index.html`, a `vite.config.ts` with an unused port, and
-   `src/`. It may import `@platform/sdk` and `@platform/app-kit` and nothing else from the
-   platform. Render every outcome the SDK can return — `pending_approval` and `denied_*` are
-   normal states, not errors.
-7. **Wire it up**: a `dev:<name>` script in the root `package.json`, and a row in
-   `apps/console/src/Launcher.tsx`. The boundary check needs no wiring; it scans every folder
-   under `apps/`.
+   `apps/review-queue`: `package.json`, `index.html`, a `vite.config.ts` with an unused port,
+   `src/`, and an `app.json` describing the app (`id`, `name`, `description`, `folder`, `url`,
+   `scopes`, `requiredScopes`). It may import `@platform/sdk` and `@platform/app-kit` and nothing
+   else from the platform. Render every outcome the SDK can return — `pending_approval` and
+   `denied_*` are normal states, not errors.
+7. **Wire it up**: a `dev:<name>` script in the root `package.json` — that is all. The console
+   launcher discovers every `apps/*/app.json` automatically, so do **not** edit
+   `apps/console/src/Launcher.tsx` or any central list. The boundary check needs no wiring either;
+   it scans every folder under `apps/`. Restart `npm run dev` after adding the folder: the new
+   app needs its dev server, and the console's Vite watcher only re-globs `app.json` files on
+   startup.
 8. **Verify** with `npm run lint && npm run typecheck && npm test`, then exercise the app in the
    browser as each seeded role, including at least one denial and one approval path. `npm run lint`
    also fails if this change touched the platform, which is the mechanical form of the rule above.

@@ -1,0 +1,9 @@
+{
+  "id": "review-queue",
+  "name": "Customer review queue",
+  "description": "Work the open review items. No money moves, so no ceiling — still scoped and audited.",
+  "folder": "apps/review-queue",
+  "url": "http://localhost:5176",
+  "scopes": ["queue:read", "queue:write"],
+  "requiredScopes": ["queue:read"]
+}
