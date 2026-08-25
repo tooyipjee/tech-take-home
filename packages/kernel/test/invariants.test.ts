@@ -41,6 +41,38 @@ test("declaring kyc.case.approve derives its whole rule set", () => {
   );
 });
 
+test("declaring refunds.issue derives its whole rule set", () => {
+  assert.deepEqual(
+    invariantsFor("refunds.issue")
+      .map((invariant) => invariant.id)
+      .sort(),
+    [
+      "refunds.issue.carries_the_declared_approval",
+      "refunds.issue.conserves_payments",
+      "refunds.issue.effects_are_attributed",
+      "refunds.issue.is_idempotent",
+      "refunds.issue.respects_declared_ceiling",
+      "refunds.issue.respects_declared_rate",
+    ],
+    "the refund desk's promises: attributed, countersigned, capped, rated, conserved",
+  );
+});
+
+test("the refund ceiling and threshold are read from the registry, not restated", () => {
+  const ceiling = getInvariant("refunds.issue.respects_declared_ceiling");
+  assert.match(ceiling?.query ?? "", /from capability_registry where name = 'refunds\.issue'/);
+  assert.doesNotMatch(ceiling?.query ?? "", /200000/, "a second copy of a ceiling can drift");
+
+  const approval = getInvariant("refunds.issue.carries_the_declared_approval");
+  assert.doesNotMatch(approval?.query ?? "", /50000/);
+  assert.match(approval?.query ?? "", /refunds:approve/);
+
+  // Conservation is a sum over committed rows, not a per-call check: that is what makes
+  // it hold across several partial refunds against one payment.
+  const conserves = getInvariant("refunds.issue.conserves_payments");
+  assert.match(conserves?.query ?? "", /sum\(e\.amount_cents\) > p\.amount_cents/);
+});
+
 test("every write in the registry is guarded, and only writes are", () => {
   const guarded = new Map<string, string[]>();
   for (const invariant of invariants()) {
@@ -58,6 +90,7 @@ test("every write in the registry is guarded, and only writes are", () => {
       "kyc.case.reject",
       "kyc.case.requestInfo",
       "kyc.case.sar.file",
+      "refunds.issue",
     ],
     "a write with no derived rule would be an unprovable money-adjacent action",
   );

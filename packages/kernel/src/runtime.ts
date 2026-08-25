@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { createDataSource, StaleRevisionError, withClient, withTransaction } from "@rangka/db";
+import {
+  createDataSource,
+  NotFoundError,
+  StaleRevisionError,
+  withClient,
+  withTransaction,
+} from "@rangka/db";
 import type { PgClient } from "@rangka/db";
 import { resolvePrincipal } from "./auth.ts";
 import { activeHalt } from "./reconciler.ts";
@@ -418,7 +424,9 @@ async function execute<T>(
         ? "invariant_violation"
         : error instanceof StaleRevisionError
           ? "conflict"
-          : "error";
+          : error instanceof NotFoundError
+            ? "not_found"
+            : "error";
     // The rollback took the audit row with it, so the failure is recorded again
     // outside the transaction, under the same invocation id. A refused effect is
     // as visible, and as traceable, as an accepted one.

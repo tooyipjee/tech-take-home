@@ -10,7 +10,7 @@
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { after, before, beforeEach, test } from "node:test";
+import { after, afterEach, before, beforeEach, test } from "node:test";
 import { migrate, pool, resetAndSeed, withClient, withTransaction } from "@rangka/db";
 import type { PgClient } from "@rangka/db";
 import { decideApproval, invoke } from "../../src/index.ts";
@@ -19,6 +19,7 @@ import { resolvePrincipal } from "../../src/auth.ts";
 import { clearHalt as clearCapabilityHalt, reconcile } from "../../src/reconciler.ts";
 import { checkInvariant, getInvariant } from "../../src/invariants.ts";
 import type { Principal } from "../../src/types.ts";
+import { releaseDatabase, takeDatabase } from "./exclusive.ts";
 
 /** Clean, low risk, no screening hits: nobody else needs to agree. */
 const CLEAN_CASE = "case_1041";
@@ -37,6 +38,9 @@ before(async () => {
 });
 
 beforeEach(async () => {
+  // These tests count every row of a kind, so they cannot share the database with
+  // another test file the runner decided to start at the same time.
+  await takeDatabase();
   await resetAndSeed();
   await syncRegistry();
   const principals = await withClient(async (client) => ({
@@ -48,6 +52,10 @@ beforeEach(async () => {
   agent = principals.agent;
   supervisor = principals.supervisor;
   admin = principals.admin;
+});
+
+afterEach(async () => {
+  await releaseDatabase();
 });
 
 after(async () => {

@@ -266,6 +266,117 @@ const cases: SeedCase[] = [
   },
 ];
 
+interface SeedPayment {
+  id: string;
+  reference: string;
+  customerId: string;
+  customerName: string;
+  customerEmail: string;
+  amountCents: number;
+  instrument: string;
+  descriptor: string;
+  status: string;
+  capturedHoursAgo: number;
+}
+
+/**
+ * Settled payments for the refunds desk, chosen so every branch of the refund policy
+ * is reachable from the seed: amounts an agent can refund alone, amounts that must wait
+ * for a supervisor, and amounts no approver can get past the ceiling. Two customers have
+ * several payments so a history is worth reading before refunding.
+ *
+ * No refund is seeded: a refund is an effect, and an effect with no audited invocation
+ * behind it is exactly what the invariants forbid.
+ */
+const payments: SeedPayment[] = [
+  {
+    id: "pay_5001",
+    reference: "PAY-5001",
+    customerId: "cus_hollis",
+    customerName: "Priya Raman",
+    customerEmail: "priya.raman@hollisandco.com",
+    amountCents: 12_400,
+    instrument: "Visa •••• 4242",
+    descriptor: "Annual plan — Hollis & Co",
+    status: "settled",
+    capturedHoursAgo: 30,
+  },
+  {
+    id: "pay_5002",
+    reference: "PAY-5002",
+    customerId: "cus_hollis",
+    customerName: "Priya Raman",
+    customerEmail: "priya.raman@hollisandco.com",
+    amountCents: 48_000,
+    instrument: "Visa •••• 4242",
+    descriptor: "Seat upgrade (12) — Hollis & Co",
+    status: "settled",
+    capturedHoursAgo: 8,
+  },
+  {
+    id: "pay_5003",
+    reference: "PAY-5003",
+    customerId: "cus_northline",
+    customerName: "Marcus Delgado",
+    customerEmail: "marcus.delgado@northlinehvac.com",
+    amountCents: 96_500,
+    instrument: "Mastercard •••• 8813",
+    descriptor: "Hardware bundle — Northline HVAC",
+    status: "settled",
+    capturedHoursAgo: 52,
+  },
+  {
+    id: "pay_5004",
+    reference: "PAY-5004",
+    customerId: "cus_northline",
+    customerName: "Marcus Delgado",
+    customerEmail: "marcus.delgado@northlinehvac.com",
+    amountCents: 24_000,
+    instrument: "Mastercard •••• 8813",
+    descriptor: "Onboarding fee — Northline HVAC",
+    status: "disputed",
+    capturedHoursAgo: 96,
+  },
+  {
+    id: "pay_5005",
+    reference: "PAY-5005",
+    customerId: "cus_vialusa",
+    customerName: "Ana Sofía Ferreira",
+    customerEmail: "a.ferreira@vialusa.pt",
+    amountCents: 185_000,
+    instrument: "Amex •••• 1009",
+    descriptor: "Enterprise licence — Vialusa",
+    status: "settled",
+    capturedHoursAgo: 14,
+  },
+  {
+    // Above the ceiling in full, so the refusal that no approver can override is one
+    // click away in a demo.
+    id: "pay_5006",
+    reference: "PAY-5006",
+    customerId: "cus_brightside",
+    customerName: "Dominic Osei",
+    customerEmail: "dominic@brightsidelabs.io",
+    amountCents: 341_000,
+    instrument: "Visa •••• 6677",
+    descriptor: "Implementation services — Brightside Labs",
+    status: "settled",
+    capturedHoursAgo: 20,
+  },
+  {
+    id: "pay_5007",
+    reference: "PAY-5007",
+    customerId: "cus_brightside",
+    customerName: "Dominic Osei",
+    customerEmail: "dominic@brightsidelabs.io",
+    amountCents: 7_900,
+    instrument: "Visa •••• 6677",
+    descriptor: "Overage — Brightside Labs",
+    status: "settled",
+    capturedHoursAgo: 3,
+  },
+];
+
 export async function seed(): Promise<void> {
   await withClient(async (client) => {
     for (const user of users) {
@@ -335,6 +446,29 @@ export async function seed(): Promise<void> {
         );
       }
     }
+
+    for (const payment of payments) {
+      await client.query(
+        `insert into payments
+           (id, reference, customer_id, customer_name, customer_email, amount_cents,
+            currency, instrument, descriptor, status, captured_at)
+         values ($1, $2, $3, $4, $5, $6, 'USD', $7, $8, $9,
+                 now() - ($10 || ' hours')::interval)
+         on conflict (id) do nothing`,
+        [
+          payment.id,
+          payment.reference,
+          payment.customerId,
+          payment.customerName,
+          payment.customerEmail,
+          payment.amountCents,
+          payment.instrument,
+          payment.descriptor,
+          payment.status,
+          String(payment.capturedHoursAgo),
+        ],
+      );
+    }
   });
 }
 
@@ -347,6 +481,7 @@ export async function resetAndSeed(): Promise<void> {
       `truncate audit_log, approvals, idempotency_keys,
                 kyc_case_events, kyc_case_decisions, kyc_pii_disclosures, kyc_sars,
                 kyc_documents, kyc_screening_hits, kyc_risk_signals, kyc_cases,
+                refunds, payments,
                 capability_halts, invariant_runs
        restart identity cascade`,
     );
