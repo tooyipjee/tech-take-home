@@ -1,18 +1,23 @@
-import { useState } from 'react';
-import { useCapability, usePlatform } from '../platform/PlatformProvider';
-import type { ApprovalRequest } from '../platform/contracts';
-import { Empty, PolicyChip, Section, relativeTime } from '../components/ui';
+import { usePlatform, usePlatformData } from '../platform/PlatformProvider';
+import type { KycApproval } from '../platform/contracts';
+import { Empty, Section, relativeTime } from '../components/ui';
 
+/**
+ * Approvals are a platform surface, not a KYC capability: the inbox reads `platform.approvals()`
+ * and decides with `platform.decide()`, so an approval raised by any app is decided the same way.
+ */
 export function ApprovalsView({ onOpen }: { onOpen: (caseId: string) => void }) {
-  const { data, loading } = useCapability('kyc.approvals.list', {});
-  const requests = data?.requests ?? [];
+  const { directory } = usePlatform();
+  const { data, error } = usePlatformData((client) => client.approvals());
+  const nameOf = (userId: string) => directory.find((actor) => actor.id === userId)?.name ?? userId;
+  const requests = data ?? [];
   const pending = requests.filter((request) => request.status === 'pending');
   const decided = requests.filter((request) => request.status !== 'pending');
 
   return (
-    <Section title="Approvals inbox" aside={<PolicyChip capability="kyc.approvals.decide" />}>
-      {loading && requests.length === 0 ? (
-        <Empty>Loading…</Empty>
+    <Section title="Approvals inbox">
+      {error ? (
+        <Empty>Refused: {error}</Empty>
       ) : pending.length === 0 ? (
         <Empty>Nothing waiting on a second human. Decide a high-risk case to see one appear here.</Empty>
       ) : (
@@ -32,12 +37,13 @@ export function ApprovalsView({ onOpen }: { onOpen: (caseId: string) => void }) 
                 <div className="row">
                   <strong>{request.summary}</strong>
                   <span className="spacer" />
-                  <span className={request.status === 'approved' ? 'muted' : 'hits'}>
-                    {request.status} by {request.decidedBy}
+                  <span className={request.status === 'rejected' || request.status === 'failed' ? 'hits' : 'muted'}>
+                    {request.status}
+                    {request.decidedBy ? ` by ${nameOf(request.decidedBy)}` : ''}
                   </span>
                 </div>
                 <p className="muted">
-                  <code>{request.capability}</code> · requested by {request.requestedBy}
+                  <code>{request.capability}</code> · requested by {request.requestedByName}
                 </p>
               </li>
             ))}
@@ -48,36 +54,29 @@ export function ApprovalsView({ onOpen }: { onOpen: (caseId: string) => void }) 
   );
 }
 
-function ApprovalRow({
-  request,
-  onOpen,
-}: {
-  request: ApprovalRequest;
-  onOpen: (caseId: string) => void;
-}) {
-  const { invoke, actor } = usePlatform();
-  const [note, setNote] = useState('');
-  const isRequester = request.requestedById === actor.userId;
+function ApprovalRow({ request, onOpen }: { request: KycApproval; onOpen: (caseId: string) => void }) {
+  const { client, actor, bump } = usePlatform();
+  const isRequester = request.requestedBy === actor.id;
+  const canDecide = actor.scopes.includes(request.approverScope) && actor.scopes.includes('approvals:decide');
 
-  const decide = (decision: 'approve' | 'deny') =>
-    invoke(
-      'kyc.approvals.decide',
-      { requestId: request.id, decision, note },
-      { idempotencyKey: `approval:${request.id}`, successMessage: `Request ${decision}d` },
-    );
+  const decide = async (decision: 'approve' | 'reject') => {
+    await client.decide(request.id, decision);
+    bump();
+  };
 
   return (
     <li>
       <div className="row">
         <strong>{request.summary}</strong>
         <span className="spacer" />
-        <span className="pill pill--awaiting_approval">{request.tier.replace('_', ' ')}</span>
+        <span className="pill pill--awaiting_approval">needs {request.approverScope}</span>
       </div>
       <p className="muted">
         <button type="button" className="linkish" onClick={() => onOpen(request.caseId)}>
           {request.caseReference}
         </button>{' '}
-        · <code>{request.capability}</code> · requested by {request.requestedBy} {relativeTime(request.requestedAt)}
+        · <code>{request.capability}</code> · requested by {request.requestedByName}{' '}
+        {relativeTime(request.createdAt)}
       </p>
       <blockquote>{request.reason}</blockquote>
       {isRequester ? (
@@ -85,17 +84,18 @@ function ApprovalRow({
           You raised this request. Four-eyes means someone else must decide it — the runtime will deny you.
         </p>
       ) : null}
+      {!isRequester && !canDecide ? (
+        <p className="banner banner--denied">
+          Deciding this needs <code>{request.approverScope}</code>, which {actor.role} does not hold. The buttons stay
+          enabled because the runtime, not the UI, is the control.
+        </p>
+      ) : null}
       <div className="row">
-        <input
-          value={note}
-          placeholder="Approval note"
-          onChange={(event) => setNote(event.target.value)}
-          className="grow"
-        />
-        <button type="button" className="btn" onClick={() => decide('deny')}>
-          Deny
+        <span className="spacer" />
+        <button type="button" className="btn" onClick={() => void decide('reject')}>
+          Reject
         </button>
-        <button type="button" className="btn btn--primary" onClick={() => decide('approve')}>
+        <button type="button" className="btn btn--primary" onClick={() => void decide('approve')}>
           Approve
         </button>
       </div>

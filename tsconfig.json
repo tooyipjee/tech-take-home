@@ -17,7 +17,8 @@
       "@platform/kernel": ["packages/kernel/src/index.ts"],
       "@platform/db": ["packages/db/src/index.ts"],
       "@platform/capabilities": ["packages/capabilities/src/index.ts"],
-      "@platform/sdk": ["packages/sdk/src/index.ts"]
+      "@platform/sdk": ["packages/sdk/src/index.ts"],
+      "@platform/app-kit": ["packages/app-kit/src/index.ts"]
     }
   },
   "include": ["packages/**/*.ts", "packages/**/*.tsx", "apps/**/*.ts", "apps/**/*.tsx", "scripts/**/*.mjs"],

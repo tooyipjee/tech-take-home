@@ -1,38 +1,55 @@
-import type { Actor, CaseDetail } from '../contracts';
-import { ROLE_SCOPES } from '../contracts';
+import type { Actor, CaseDetail, Role, Scope } from '../contracts';
 
 const now = Date.now();
 const hours = (n: number) => new Date(now + n * 3_600_000).toISOString();
 
 /**
- * Two compliance officers, because four-eyes plus a compliance-only tier means a SAR raised by the
- * only officer in the directory could never be cleared.
+ * The KYC slice of the kernel's role → scope map. The real runtime resolves this from the
+ * principal, and `platform.users()` returns it; the mock restates only the scopes this app cares
+ * about so the two directories cannot silently diverge on anything else.
+ */
+type PlatformScope = 'approvals:read' | 'approvals:decide' | 'audit:read';
+
+const MOCK_SCOPES: Record<Role, (Scope | PlatformScope)[]> = {
+  agent: ['kyc:read', 'kyc:pii', 'kyc:review'],
+  supervisor: [
+    'kyc:read',
+    'kyc:pii',
+    'kyc:review',
+    'kyc:decide',
+    'approvals:read',
+    'approvals:decide',
+    'audit:read',
+  ],
+  admin: [
+    'kyc:read',
+    'kyc:pii',
+    'kyc:review',
+    'kyc:decide',
+    'kyc:sar',
+    'approvals:read',
+    'approvals:decide',
+    'audit:read',
+  ],
+};
+
+/**
+ * The seeded platform directory, so the mock and the API host disagree about nothing.
+ *
+ * Two admins, because four-eyes plus a compliance-only approver scope means a SAR raised by the
+ * only holder of `kyc:sar` could never be cleared.
  */
 export const ACTOR_DIRECTORY: Actor[] = [
+  { id: 'u_agent', email: 'avery@fin.example', name: 'Avery Nolan', role: 'agent', scopes: MOCK_SCOPES.agent },
   {
-    userId: 'u_reviewer',
-    displayName: 'Priya Raman',
-    role: 'kyc_reviewer',
-    scopes: ROLE_SCOPES.kyc_reviewer,
+    id: 'u_supervisor',
+    email: 'sam@fin.example',
+    name: 'Sam Okafor',
+    role: 'supervisor',
+    scopes: MOCK_SCOPES.supervisor,
   },
-  {
-    userId: 'u_lead',
-    displayName: 'Tom Okafor',
-    role: 'kyc_lead',
-    scopes: ROLE_SCOPES.kyc_lead,
-  },
-  {
-    userId: 'u_compliance',
-    displayName: 'Dana Whitfield',
-    role: 'compliance_officer',
-    scopes: ROLE_SCOPES.compliance_officer,
-  },
-  {
-    userId: 'u_compliance_2',
-    displayName: 'Samir Haddad',
-    role: 'compliance_officer',
-    scopes: ROLE_SCOPES.compliance_officer,
-  },
+  { id: 'u_admin', email: 'robin@fin.example', name: 'Robin Vale', role: 'admin', scopes: MOCK_SCOPES.admin },
+  { id: 'u_admin_2', email: 'dana@fin.example', name: 'Dana Whitfield', role: 'admin', scopes: MOCK_SCOPES.admin },
 ];
 
 function mask(value: string, keep = 4): string {
@@ -41,7 +58,7 @@ function mask(value: string, keep = 4): string {
 }
 
 function maskEmail(email: string): string {
-  const [local, domain] = email.split('@');
+  const [local = '', domain = ''] = email.split('@');
   return `${local.slice(0, 1)}${'•'.repeat(Math.max(2, local.length - 1))}@${domain}`;
 }
 
@@ -200,7 +217,7 @@ const RAW: RawCase[] = [
     riskScore: 44,
     submittedHoursAgo: -50,
     slaInHours: 26,
-    assignedTo: 'u_reviewer',
+    assignedTo: 'u_agent',
     productTier: 'Business Checking',
     expectedMonthlyVolumeUsd: 62_000,
     identity: {
@@ -272,7 +289,7 @@ const RAW: RawCase[] = [
     riskScore: 16,
     submittedHoursAgo: -72,
     slaInHours: -48,
-    assignedTo: 'u_lead',
+    assignedTo: 'u_supervisor',
     productTier: 'Business Checking',
     expectedMonthlyVolumeUsd: 9_500,
     identity: {

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import type { CapabilityName, CaseStatus, RiskBand } from '../platform/contracts';
-import { CAPABILITY_POLICIES } from '../platform/contracts';
+import { CAPABILITY_DESCRIPTORS } from '../platform/contracts';
 
 export function Pill({ tone, children }: { tone: string; children: ReactNode }) {
   return <span className={`pill pill--${tone}`}>{children}</span>;
@@ -27,15 +27,19 @@ export function RiskPill({ band, score }: { band: RiskBand; score: number }) {
   );
 }
 
-/** Shows the policy the runtime will apply, so the rules are visible rather than implied by the UI. */
+/** Shows the registered policy the runtime will apply, so the rules are visible rather than implied. */
 export function PolicyChip({ capability }: { capability: CapabilityName }) {
-  const policy = CAPABILITY_POLICIES[capability];
+  const descriptor = CAPABILITY_DESCRIPTORS[capability];
+  const policy = descriptor.policy;
+  const detail =
+    'maxRows' in policy
+      ? `read · ≤${policy.maxRows} rows`
+      : `write · ${policy.limits.maxPerHour}/hour · approval: ${policy.derivedApproval ?? policy.approval.mode}`;
   return (
-    <span className="policy-chip" title={policy.description}>
+    <span className="policy-chip" title={descriptor.summary}>
       <code>{capability}</code>
       <span>
-        {policy.scope} · {policy.limit}
-        {policy.approval !== 'none' ? ` · approval: ${policy.approval}` : ''}
+        {policy.scope} · {detail}
       </span>
     </span>
   );
