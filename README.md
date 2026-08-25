@@ -118,6 +118,26 @@ neither.
 | `packages/sdk` | The only thing an app may import |
 | `apps/api` | Fastify host: identity, invocation, approvals, audit, invariants |
 | `apps/console` | Shell; `src/apps/*` are apps, `src/platform/*` are platform views |
+| `apps/kyc-review` | KYC review queue — an app, not part of the platform |
+
+`packages/*` is the platform: the trust boundary, the data layer and the only surface an app may
+import. `apps/*` is everything above it, one folder per deployable. A new app is a new folder in
+`apps/` with its own `package.json` and a `dev:<name>` script at the root; it depends on
+`@platform/sdk` and nothing else from the platform, which `npm run lint` enforces.
+
+## Scripts
+
+| Command | Purpose |
+| --- | --- |
+| `npm run setup` | Postgres up, migrate, reset + seed |
+| `npm run dev` | API, console and the KYC queue together |
+| `npm run dev:kyc` | Just the KYC review queue, on :5174 |
+| `npm run db:reset` | Wipe transactional state, re-seed |
+| `npm run typecheck` | `tsc --noEmit` across the workspace |
+| `npm run lint` | Boundary check (apps may not import the db, kernel, capabilities, or call `fetch`) and tier check (a platform edit needs a change record) |
+| `npm test` | Kernel policy-declaration and invariant-derivation tests, including that every derived invariant is attacked by a database test |
+| `npm run test:db` | The invariants, attacked against a real database |
+| `npm run reconcile` | One-shot invariant check; exits non-zero on a violation |
 
 ## Documentation
 
