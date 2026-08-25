@@ -1,101 +1,123 @@
 # Internal Tool Platform
 
-An internal-tool platform for a fintech back office. Apps here are **written by Devin**, not
-drawn in a canvas — so the platform's job is not app authoring. Its job is to be the substrate
-that makes generated code safe: apps get a narrow, typed capability surface, and authorisation,
-amount ceilings, rate limits, approvals and audit are enforced *below* the app, by the runtime.
+One framework, one Postgres database, many small back-office apps talking to it — and a layer in
+between that decides what each app is allowed to do.
 
-The bet: generated code is fast but not trustworthy, so nothing load-bearing may live in it.
-And because "we tested it and it held" is a verdict about a moment rather than a property of
-the system, the platform states its invariants as **tenets** and re-proves them continuously —
-in the database, inside every writing transaction, and on a timer (see
-[ADR 0006](docs/adr/0006-tenets-are-enforced-three-times.md)).
-
-Tenets are not a hand-picked list. Each one is derived either from a platform axiom or
-mechanically from the policy a human reviewed — declare `maxAmountCents`, an approval rule and
-where the money lands, and the SQL that proves the committed data obeys all three is generated
-from that declaration. A money-moving capability cannot register without it.
+The apps (refund queue, review queue, flag admin) are written by Devin, so nothing load-bearing
+may live in them: an app can only call **capabilities**, and every capability declares its
+policy — who may call it, how much money it may move, how often, whether it needs a second
+person's approval. The runtime enforces that declaration; the app cannot bypass it, because the
+app never touches the database.
 
 ```
-Devin writes this ──►  app (React screen)     apps/console/src/apps
-                             │  invoke("refunds.issue", {...})
-                       ──────┼───────────────────────────────  trust boundary
-Humans review this ──► capability (declared policy + handler)   packages/capabilities
-                             │
-                       runtime: scope → validate → rate limit → ceiling
-                                → approval → halted? → execute → audit
-                                → tenet postcondition (or roll back)   packages/kernel
-                             │
-                       data source (transaction- and invocation-bound) packages/db
-                             │
-                       Postgres: constraints, append-only history,
-                                 conservation triggers
-                             ▲
-                       reconciler, every 15s: re-derives every tenet,
-                       halts the capabilities a violated one guards
+apps/console/src/apps    a screen, written by Devin
+                         invoke("refunds.issue", { paymentId, amountCents })
+─────────────────────────────────────────────────────────  trust boundary
+packages/capabilities    capability = declared policy + handler, human-reviewed
+packages/kernel          runtime: scope → validate → rate → ceiling → approval
+                                  → execute → audit → invariants (or roll back)
+packages/db              Postgres: one database, append-only history,
+                                   constraints and triggers
 ```
+
+Three back-office apps, one guard layer, one database. Everything the platform refuses — over
+the ceiling, unapproved, out of scope, replayed — is refused in the same place, once.
 
 ## Run it
 
 ```bash
 npm install
-npm run setup     # starts Postgres in Docker, migrates, seeds
+npm run setup     # Postgres in Docker, migrate, seed
 npm run dev       # api on :8080, console on :5173
 ```
 
-Open <http://localhost:5173> and use the **acting as** switcher in the header to change principal.
+Open <http://localhost:5173>. There is no login; the **acting as** switcher in the header picks
+the principal (Avery, agent · Sam, supervisor · Robin, admin) and the API reads it from the
+`x-platform-user` header.
 
-### The demo
+## Drive it
 
-| Do this | What the platform does |
-| --- | --- |
-| As **Avery (agent)**, refund $42 on `pay_2001` | `ok` — executed and audited in one transaction |
-| Click *Issue refund* again with the same amount | fresh idempotency key, so a second refund; re-issuing the *same* key returns `replayed` |
-| Refund $600 on `pay_2003` | `pending_approval` — the handler never ran |
-| Switch to **Sam (supervisor)** → Approvals → Approve | runtime replays the request as Avery under a grant only it can mint |
-| Switch back to Avery, try to refund $2,500 | `denied_limit` — above the declared ceiling |
-| As Avery, open **Audit log** | `403` — agents lack `audit:read`; the denial is itself audited |
-| Open **Tenets** → *Reconcile now* | every statement re-proved against committed data, each showing the axiom or policy field it was derived from and when it was last checked |
-| In `psql`, `update payments set amount_cents = 1000 where id = 'pay_2004'`, then reconcile | `refunds.issue.conserves_payments` fails, `refunds.issue` halts, refunds now return `halted` while every other capability keeps serving; an admin cannot clear it until the data is repaired |
+Each row is a rule being enforced somewhere the app can't reach:
 
-Everything above is visible in the **Audit log** tab as a supervisor, including every denial.
+| Do this | What happens | Enforced by |
+| --- | --- | --- |
+| As **Avery**, refund $42 on `pay_2001` | `ok` — money moved and audited in one transaction | — |
+| Refund $600 on `pay_2003` | `pending_approval`; the handler never ran | `approval.above_amount: 50000` |
+| Switch to **Sam** → *Approvals* → Approve | the runtime replays the request as Avery under a grant only it can mint | approver scope |
+| Back as Avery, refund $2,500 on `pay_2004` | `denied_limit` | `limits.maxAmountCents` |
+| As Avery, open the **Audit log** tab | `403` — and the denial is itself audited | `audit:read` scope |
+| Open **Invariants** → *Reconcile now* | every rule re-proved against committed data, each showing what it was derived from | — |
+| In `psql`: `update payments set amount_cents = 1000 where id = 'pay_2004'`, then reconcile | `refunds.issue.conserves_payments` fails → `refunds.issue` halts and returns `halted`; other capabilities keep serving; an admin cannot clear the halt until the data is repaired | reconciler |
+
+The **Audit log** tab (as Sam) is the whole story: every call, its outcome, its amount, and who
+made it.
+
+## Test it
+
+```bash
+npm test          # policy declarations and the rules derived from them
+npm run test:db   # those rules, attacked against a real Postgres
+npm run lint      # boundary check + tier check (see below)
+npm run typecheck
+npm run reconcile # one-shot check of committed data; non-zero exit on a violation
+```
+
+`npm run test:db` is the interesting one. It doesn't test the happy path — it inserts refunds by
+raw SQL, forges audit rows, edits history, and runs a handler that moves ten times what it
+declared, then asserts the database or the runtime stopped it.
+
+## How the rules work
+
+A rule here is an **invariant**: one SQL statement over committed data that must return zero
+rows. Not a hand-picked list — each is derived from either a platform axiom ("an effect nobody
+audited did not legitimately happen") or from the policy a human already reviewed:
+
+```ts
+policy: {
+  limits: { maxAmountCents: 200_000, maxPerHour: 10 },
+  approval: { mode: "above_amount", amountCents: 50_000 },
+  idempotent: true,
+  effect: {                                    // where the money lands
+    table: "refunds", amountColumn: "amount_cents",
+    conserves: { table: "payments", via: "payment_id", amountColumn: "amount_cents" },
+  },
+}
+```
+
+That block generates `refunds.issue.{respects_declared_ceiling, carries_the_declared_approval,
+respects_declared_rate, is_idempotent, effects_are_attributed, conserves_payments}` — and the
+thresholds inside the generated SQL are read back out of the registry, so a rule can never drift
+from the declaration it polices. A capability that moves money without declaring an `effect`
+refuses to start.
+
+Each invariant is then proved three times: by the database (constraints, append-only triggers),
+as a postcondition inside the writing transaction (fails → the money rolls back, the refusal is
+audited), and by a reconciler on a timer (fails → the capabilities that rule guards are halted).
+Why three: see [ADR 0006](docs/adr/0006-invariants-are-enforced-three-times.md).
 
 ## Two tiers of change
 
 |  | Tier 1 — build an app | Tier 2 — extend the platform |
 | --- | --- | --- |
-| May touch | `apps/console/src/apps/*`, docs | the kernel, tenets, migrations, capabilities, SDK |
-| Consumes | existing capabilities and tenets | defines new ones |
+| May touch | `apps/console/src/apps/*`, docs | kernel, invariants, migrations, capabilities, SDK |
+| Uses | existing capabilities and rules | defines new ones |
 | Review | does the screen do the job? | what can no longer be proved, and what now can? |
-| Extra required | — | adversarial DB tests, a change record, explicit human sign-off |
-| Enforced by | `npm run lint` fails if an app imports the platform | `npm run lint` fails if a platform edit has no change record; `npm test` fails if a derived tenet has no test |
+| Also required | — | adversarial DB tests, a change record, human sign-off |
+| Enforced by | `npm run lint` fails if an app imports the platform | `npm run lint` fails if a platform edit has no change record; `npm test` fails if a derived rule has no test attacking it |
 
-The point of the split: most work should be fast and unsupervised, and the work that can weaken
-a guarantee should be neither.
+Most work should be fast and unsupervised; the work that can weaken a guarantee should be
+neither.
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `packages/kernel` | Capability registry, policy declaration types, invocation runtime, audit |
+| `packages/kernel` | Registry, policy types, invocation runtime, audit, invariants, reconciler |
 | `packages/capabilities` | The reviewed surface: refunds, feature flags, review queue |
 | `packages/db` | Migrations, seed, and the `DataSource` handlers are bound to |
 | `packages/sdk` | The only thing an app may import |
-| `apps/api` | Fastify host: identity, capability invocation, approvals, audit |
-| `apps/console` | App shell; `src/apps/*` are applications, `src/platform/*` are platform views |
-
-## Scripts
-
-| Command | Purpose |
-| --- | --- |
-| `npm run setup` | Postgres up, migrate, reset + seed |
-| `npm run dev` | API and console together |
-| `npm run db:reset` | Wipe transactional state, re-seed |
-| `npm run typecheck` | `tsc --noEmit` across the workspace |
-| `npm run lint` | Boundary check (apps may not import the db, kernel, capabilities, or call `fetch`) and tier check (a platform edit needs a change record) |
-| `npm test` | Kernel policy-declaration and tenet-derivation tests, including that every derived tenet is attacked by a database test |
-| `npm run test:db` | The invariants, attacked against a real database |
-| `npm run reconcile` | One-shot tenet check; exits non-zero on a violation |
+| `apps/api` | Fastify host: identity, invocation, approvals, audit, invariants |
+| `apps/console` | Shell; `src/apps/*` are apps, `src/platform/*` are platform views |
 
 ## Documentation
 
@@ -103,12 +125,11 @@ a guarantee should be neither.
 - [Authoring a capability](docs/authoring-a-capability.md) — the workflow humans and Devin share
 - [Decisions](docs/adr) — why it is built this way, and what was deliberately not built
 - [Playbook, tier 1](docs/devin/playbook-build-an-app.md) — build an app from what exists
-- [Playbook, tier 2](docs/devin/playbook-extend-the-platform.md) — the only route that may change a
-  tenet, a capability or a migration, and what the extra human review is for
+- [Playbook, tier 2](docs/devin/playbook-extend-the-platform.md) — the only route that may change
+  a rule, a capability or a migration
 - [Platform changes](docs/platform-changes) — what each tier-2 change did to the guarantees
 
 ## Status
 
-Framework and one worked example. The three target apps (customer review queues, refunds
-dashboard, feature flag admin) are intentionally not built yet: `refunds.issue` exists to prove
-the enforcement path, not to be the product.
+Framework plus one worked example. The target apps are deliberately not built yet:
+`refunds.issue` exists to prove the enforcement path, not to be the product.

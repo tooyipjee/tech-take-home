@@ -78,7 +78,7 @@ export function defineWrite<I extends z.ZodTypeAny, O>(
   // has no way to prove afterwards that it moved the right amount to the right place.
   if (policy.limits.maxAmountCents !== null && !policy.effect) {
     throw new PolicyDeclarationError(
-      `write capability ${capability.name} moves money but declares no effect, so no tenet can be derived for it`,
+      `write capability ${capability.name} moves money but declares no effect, so no invariant can be derived for it`,
     );
   }
   const registered: WriteCapability<I, O> = { ...capability, kind: "write" };

@@ -10,7 +10,7 @@ import {
   listCapabilities,
   listHalts,
   listPrincipals,
-  listTenetStatus,
+  listInvariantStatus,
   reconcile,
   resolvePrincipal,
   startReconciler,
@@ -93,33 +93,33 @@ app.get<{ Querystring: { limit?: string } }>("/api/audit", async (request, reply
   return listAuditLog(Number(request.query.limit ?? 100));
 });
 
-app.get("/api/tenets", async (request, reply) => {
+app.get("/api/invariants", async (request, reply) => {
   const principal = await principalFrom(request.headers["x-platform-user"]);
   if (!principal) return reply.code(401).send({ message: "unknown user" });
-  if (!principal.scopes.includes("tenets:read")) {
-    return reply.code(403).send({ message: `${principal.role} lacks scope tenets:read` });
+  if (!principal.scopes.includes("invariants:read")) {
+    return reply.code(403).send({ message: `${principal.role} lacks scope invariants:read` });
   }
-  const [tenets, halts] = await Promise.all([listTenetStatus(), listHalts()]);
-  return { tenets, halts };
+  const [invariants, halts] = await Promise.all([listInvariantStatus(), listHalts()]);
+  return { invariants, halts };
 });
 
 /** Manual reconciliation, for demos and for confirming a fix before clearing a halt. */
-app.post("/api/tenets/run", async (request, reply) => {
+app.post("/api/invariants/run", async (request, reply) => {
   const principal = await principalFrom(request.headers["x-platform-user"]);
   if (!principal) return reply.code(401).send({ message: "unknown user" });
-  if (!principal.scopes.includes("tenets:read")) {
-    return reply.code(403).send({ message: `${principal.role} lacks scope tenets:read` });
+  if (!principal.scopes.includes("invariants:read")) {
+    return reply.code(403).send({ message: `${principal.role} lacks scope invariants:read` });
   }
   return reconcile();
 });
 
 app.post<{ Params: { capability: string } }>(
-  "/api/tenets/halts/:capability/clear",
+  "/api/invariants/halts/:capability/clear",
   async (request, reply) => {
     const principal = await principalFrom(request.headers["x-platform-user"]);
     if (!principal) return reply.code(401).send({ message: "unknown user" });
-    if (!principal.scopes.includes("tenets:clear")) {
-      return reply.code(403).send({ message: `${principal.role} lacks scope tenets:clear` });
+    if (!principal.scopes.includes("invariants:clear")) {
+      return reply.code(403).send({ message: `${principal.role} lacks scope invariants:clear` });
     }
     const result = await clearHalt(request.params.capability, principal);
     return reply.code(result.cleared ? 200 : 409).send(result);
@@ -143,7 +143,7 @@ function statusFor(outcome: string): number {
       return 400;
     case "not_found":
       return 404;
-    case "tenet_violation":
+    case "invariant_violation":
       return 409;
     case "halted":
       return 503;
@@ -158,7 +158,7 @@ try {
   await migrate();
   const count = await syncRegistry();
   await app.listen({ port, host: "0.0.0.0" });
-  // The registry has to be synced first: tenets read declared policy from it.
+  // The registry has to be synced first: invariants read declared policy from it.
   startReconciler(Number(process.env.RECONCILE_INTERVAL_MS ?? 15_000));
   console.log(`api listening on http://localhost:${port} with ${count} capabilities registered`);
 } catch (error) {

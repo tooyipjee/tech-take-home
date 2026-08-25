@@ -13,9 +13,9 @@ export const ROLE_SCOPES: Record<Role, string[]> = {
     "queue:read",
     "queue:write",
     "flags:read",
-    // Tenet health is readable by everyone: a halted capability must be
+    // Invariant health is readable by everyone: a halted capability must be
     // explainable to the person whose work just stopped.
-    "tenets:read",
+    "invariants:read",
   ],
   supervisor: [
     "payments:read",
@@ -27,7 +27,7 @@ export const ROLE_SCOPES: Record<Role, string[]> = {
     "approvals:read",
     "approvals:decide",
     "audit:read",
-    "tenets:read",
+    "invariants:read",
   ],
   admin: [
     "payments:read",
@@ -40,10 +40,10 @@ export const ROLE_SCOPES: Record<Role, string[]> = {
     "approvals:read",
     "approvals:decide",
     "audit:read",
-    "tenets:read",
+    "invariants:read",
     // Resuming a halted capability is an admin act, and only possible once the
-    // tenet passes again.
-    "tenets:clear",
+    // invariant passes again.
+    "invariants:clear",
   ],
 };
 

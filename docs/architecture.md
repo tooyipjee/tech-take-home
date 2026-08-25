@@ -21,8 +21,8 @@ to the capability, and there is no code path that skips them.
 
 The boundary is mechanically enforced by `npm run lint`, which fails if app code imports the
 kernel, the data layer, capability handlers, `pg`, or calls `fetch` directly — and, separately,
-if a change edits the platform without a record under `docs/platform-changes/`, or registers a
-tenet no test names. The two playbooks in `docs/devin/` are the two sides of that line.
+if a change edits the platform without a record under `docs/platform-changes/`, or registers an
+invariant no test names. The two playbooks in `docs/devin/` are the two sides of that line.
 
 ## The invocation pipeline
 
@@ -50,16 +50,16 @@ Every call — read or write, allowed or denied — goes through `invoke()` in
 9. **Audit** in the *same* transaction as the effect. An effect that commits without its audit
    record is not representable. Failures roll back the effect and are audited on a separate
    connection under the same invocation id, so denials and errors are recorded too.
-10. **Prove the tenets** before commit. The invariants are re-derived inside the transaction
+10. **Prove the invariants** before commit. The invariants are re-derived inside the transaction
     from what it is about to commit; a violation aborts it, so the money never lands and only
     the audited refusal survives.
 
-Writes are also refused up front (`halted`) while a tenet guarding that capability is violated.
+Writes are also refused up front (`halted`) while an invariant guarding that capability is violated.
 
-## Tenets
+## Invariants
 
-A tenet is a statement about the data that must always be true, written as SQL that returns no
-rows (`packages/kernel/src/tenets.ts`).
+An invariant is a statement about the data that must always be true, written as SQL that returns no
+rows (`packages/kernel/src/invariants.ts`).
 
 The set is **derived, not curated**. Two sources:
 
@@ -86,7 +86,7 @@ The same definition is enforced in three places:
 | Postcondition in the writing transaction | a handler that did something its declaration did not describe | the effect rolls back, refusal is audited |
 | Reconciler, every 15s | drift that arrived by a path the runtime never saw — manual UPDATE, restore, migration | the guarded capability halts |
 
-Thresholds inside tenet queries are read from `capability_registry`, so an invariant is derived
+Thresholds inside invariant queries are read from `capability_registry`, so an invariant is derived
 from the declaration a human approved rather than being a second copy that can drift from it.
 
 Every effect row carries the `invocation_id` of the audited invocation that produced it. The
@@ -94,9 +94,9 @@ Every effect row carries the `invocation_id` of the audited invocation that prod
 unattributable effect unrepresentable — the property the reconciler's "is this refund real?"
 question depends on.
 
-On a violation the platform halts the capabilities the tenet names: writes return `halted`,
-reads and everything else keep serving, and only `tenets:clear` (admin) resumes it, once every
-tenet guarding it passes again. See [ADR 0006](adr/0006-tenets-are-enforced-three-times.md).
+On a violation the platform halts the capabilities the invariant names: writes return `halted`,
+reads and everything else keep serving, and only `invariants:clear` (admin) resumes it, once every
+invariant guarding it passes again. See [ADR 0006](adr/0006-invariants-are-enforced-three-times.md).
 
 ## Approvals
 
@@ -134,7 +134,7 @@ never roles, so adding a role never touches capability code.
 One database, two concerns, deliberately: platform state (`platform_users`,
 `capability_registry`, `approvals`, `idempotency_keys`, `audit_log`) and business data
 (`customers`, `payments`, `refunds`, `feature_flags`, `review_queue_items`), plus the
-reconciliation record (`tenet_runs`, `capability_halts`). They share a
+reconciliation record (`invariant_runs`, `capability_halts`). They share a
 database so that an effect and its audit record commit atomically — the property that makes the
 audit log trustworthy. See [ADR 0004](adr/0004-postgres-as-system-of-record.md) for the cost of
 that choice.
