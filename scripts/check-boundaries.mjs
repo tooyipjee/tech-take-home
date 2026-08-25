@@ -3,7 +3,7 @@
  * A generated app that reaches for the database, the kernel, or a vendor client
  * fails here rather than in review.
  */
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const FORBIDDEN_IN_APPS = [
@@ -14,7 +14,19 @@ const FORBIDDEN_IN_APPS = [
   { pattern: /\bfetch\s*\(/, reason: "apps must invoke capabilities via the SDK, not raw fetch" },
 ];
 
-const APP_ROOTS = ["apps/console/src/apps", "apps/kyc-review/src"];
+/**
+ * Every folder under `apps/` is an app and is scanned, except the two hosts that
+ * are the platform itself: the API process and the console. A new app is a new
+ * folder, so it is covered the moment it exists rather than when someone
+ * remembers to list it here.
+ */
+const PLATFORM_HOSTS = new Set(["api", "console"]);
+
+const APP_ROOTS = readdirSync("apps")
+  .filter((name) => !PLATFORM_HOSTS.has(name) && statSync(join("apps", name)).isDirectory())
+  .map((name) => join("apps", name, "src"))
+  .filter((path) => existsSync(path));
+
 const violations = [];
 
 function walk(dir) {

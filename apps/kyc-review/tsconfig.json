@@ -7,5 +7,7 @@
     "noFallthroughCasesInSwitch": true,
     "isolatedModules": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "//": "the root config excludes this app so it is typechecked here, with its own lib and strictness",
+  "exclude": ["node_modules"]
 }

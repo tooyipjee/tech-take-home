@@ -14,7 +14,7 @@ to the capability, and there is no code path that skips them.
 
 | Layer | Written by | Reviewed how | May touch |
 | --- | --- | --- | --- |
-| App (`apps/console/src/apps`) | Devin | Skimmed — it cannot do damage | `@platform/sdk` only |
+| App (`apps/<app-name>`) | Devin | Skimmed — it cannot do damage | `@platform/sdk`, `@platform/app-kit` |
 | Capability (`packages/capabilities`) | Devin from a human spec | Read in full, line by line | `ctx.data`, its own input |
 | Runtime (`packages/kernel`) | Devin under the tier-2 playbook | Read in full, with adversarial DB tests and a change record | Everything |
 | Data (`packages/db`) | Devin under the tier-2 playbook | Migrations reviewed; additive only | Postgres |

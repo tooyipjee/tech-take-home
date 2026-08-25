@@ -34,10 +34,14 @@ A paragraph of intent in risk terms, e.g.:
 5. **Read the invariants** the flows you are building depend on: `GET /api/invariants`, or
    `packages/kernel/src/invariants.ts`. They tell you what the platform already guarantees, so you
    do not re-check it in the app.
-6. **Write the app** in `apps/console/src/apps/<Name>.tsx`. It may import `../client.ts`,
-   `../format.ts` and `../Outcome.tsx` and nothing else from the platform. Render every outcome
-   the SDK can return — `pending_approval` and `denied_*` are normal states, not errors.
-7. **Register the tab** in `apps/console/src/App.tsx`.
+6. **Write the app** in its own folder, `apps/<app-name>/`. Copy the shape of
+   `apps/review-queue`: `package.json`, `index.html`, a `vite.config.ts` with an unused port, and
+   `src/`. It may import `@platform/sdk` and `@platform/app-kit` and nothing else from the
+   platform. Render every outcome the SDK can return — `pending_approval` and `denied_*` are
+   normal states, not errors.
+7. **Wire it up**: a `dev:<name>` script in the root `package.json`, and a row in
+   `apps/console/src/Launcher.tsx`. The boundary check needs no wiring; it scans every folder
+   under `apps/`.
 8. **Verify** with `npm run lint && npm run typecheck && npm test`, then exercise the app in the
    browser as each seeded role, including at least one denial and one approval path. `npm run lint`
    also fails if this change touched the platform, which is the mechanical form of the rule above.
