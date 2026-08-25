@@ -1,0 +1,9 @@
+{
+  "id": "flag-control",
+  "name": "Flag control",
+  "description": "Read rollout state, and flip a flag if you hold flags:write. No money moves; 30 changes an hour.",
+  "folder": "apps/flag-control",
+  "url": "http://localhost:5177",
+  "scopes": ["flags:read", "flags:write"],
+  "requiredScopes": ["flags:read"]
+}
