@@ -262,9 +262,9 @@ h3 {
   border-color: rgba(224, 163, 58, 0.4);
 }
 
-.pill--adapter-mock {
-  color: var(--accent);
-  border-color: rgba(76, 141, 255, 0.4);
+.boot {
+  padding: 48px;
+  color: var(--muted);
 }
 
 .policy-chip {

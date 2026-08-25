@@ -1,8 +1,12 @@
 import { useState } from 'react';
-import { useCapability, usePlatform } from '../platform/PlatformProvider';
-import type { CaseDetail, MaskedIdentity, RejectReasonCode } from '../platform/contracts';
-import { CAPABILITY_DESCRIPTORS, REJECT_REASONS } from '../platform/contracts';
-import { approvalReason } from '../platform/mock/kernel';
+import { useCapability, useDescriptor, usePlatform } from '../platform/PlatformProvider';
+import type {
+  ApprovalRequirement,
+  CaseDetail,
+  MaskedIdentity,
+  RejectReasonCode,
+} from '../platform/contracts';
+import { REJECT_REASONS, scopeOf } from '../platform/contracts';
 import { Empty, PolicyChip, RiskPill, StatusPill, relativeTime } from '../components/ui';
 
 const INFO_ITEMS = ['Proof of address (<90 days)', 'Source of funds statement', 'Selfie liveness check', 'Business registration'];
@@ -12,10 +16,25 @@ export function CaseView({ caseId, onBack }: { caseId: string; onBack: () => voi
   if (loading && !data) return <Empty>Loading case…</Empty>;
   if (error) return <Empty>{error}</Empty>;
   if (!data) return <Empty>Case unavailable.</Empty>;
-  return <CaseDetailPanel key={data.case.revision} detail={data.case} onBack={onBack} />;
+  return (
+    <CaseDetailPanel
+      key={data.case.revision}
+      detail={data.case}
+      decisionApproval={data.decisionApproval}
+      onBack={onBack}
+    />
+  );
 }
 
-function CaseDetailPanel({ detail, onBack }: { detail: CaseDetail; onBack: () => void }) {
+function CaseDetailPanel({
+  detail,
+  decisionApproval,
+  onBack,
+}: {
+  detail: CaseDetail;
+  decisionApproval: ApprovalRequirement | null;
+  onBack: () => void;
+}) {
   const { invoke, actor } = usePlatform();
   const [revealed, setRevealed] = useState<MaskedIdentity | null>(null);
 
@@ -56,7 +75,7 @@ function CaseDetailPanel({ detail, onBack }: { detail: CaseDetail; onBack: () =>
           <RiskCard detail={detail} />
         </div>
         <div className="case__column">
-          <DecisionCard detail={detail} />
+          <DecisionCard detail={detail} decisionApproval={decisionApproval} />
           <TimelineCard detail={detail} />
         </div>
       </div>
@@ -74,6 +93,7 @@ function IdentityCard({
   onReveal: (identity: MaskedIdentity | null) => void;
 }) {
   const { invoke } = usePlatform();
+  const revealDescriptor = useDescriptor('kyc.case.pii.reveal');
   const [justification, setJustification] = useState('');
   const [asking, setAsking] = useState(false);
   const identity = revealed ?? detail.identity;
@@ -111,7 +131,7 @@ function IdentityCard({
 
       {asking && identity.masked && (
         <div className="reveal">
-          <p className="muted">{CAPABILITY_DESCRIPTORS['kyc.case.pii.reveal'].summary}</p>
+          <p className="muted">{revealDescriptor?.summary}</p>
           <textarea
             value={justification}
             placeholder="Why do you need the raw identifiers? (min 10 characters)"
@@ -224,7 +244,13 @@ function RiskCard({ detail }: { detail: CaseDetail }) {
   );
 }
 
-function DecisionCard({ detail }: { detail: CaseDetail }) {
+function DecisionCard({
+  detail,
+  decisionApproval,
+}: {
+  detail: CaseDetail;
+  decisionApproval: ApprovalRequirement | null;
+}) {
   const { invoke, actor } = usePlatform();
   const [mode, setMode] = useState<'approve' | 'reject' | 'info' | 'escalate' | 'sar'>('approve');
   const [note, setNote] = useState('');
@@ -243,8 +269,17 @@ function DecisionCard({ detail }: { detail: CaseDetail }) {
           : mode === 'escalate'
             ? 'kyc.case.escalate'
             : 'kyc.case.sar.file';
-  const heldReason = approvalReason(capability, detail);
-  const holdsScope = actor.scopes.includes(CAPABILITY_DESCRIPTORS[capability].policy.scope);
+  const descriptor = useDescriptor(capability);
+  const scope = descriptor ? scopeOf(descriptor) : null;
+  const holdsScope = scope === null || actor.scopes.includes(scope);
+  // What the runtime says it will demand, asked of the case by the kernel and returned by
+  // `kyc.cases.get` — never re-derived here.
+  const requirement =
+    capability === 'kyc.case.approve' || capability === 'kyc.case.reject' ? decisionApproval : null;
+  const heldReason =
+    capability === 'kyc.case.sar.file'
+      ? 'Filing a SAR always waits for a second holder of kyc:sar.'
+      : (requirement?.reason ?? null);
 
   const submit = async () => {
     const base = { caseId: detail.id, revision: detail.revision };
@@ -309,8 +344,7 @@ function DecisionCard({ detail }: { detail: CaseDetail }) {
 
       {!holdsScope && (
         <p className="banner banner--denied">
-          Your role ({actor.role}) does not hold <code>{CAPABILITY_DESCRIPTORS[capability].policy.scope}</code>. The
-          runtime will
+          Your role ({actor.role}) does not hold <code>{scope}</code>. The runtime will
           refuse this call — the button is left enabled deliberately, because hiding it is not a control.
         </p>
       )}

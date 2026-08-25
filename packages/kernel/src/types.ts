@@ -21,10 +21,33 @@ export interface WriteLimits {
   maxPerHour: number;
 }
 
+/**
+ * One clause of a data-derived approval rule: when `when` holds of the record being
+ * acted on, a second person holding `approverScope` must agree first.
+ *
+ * `when` is SQL over the subject row, aliased `s`. It is written once, by a reviewed
+ * tier-2 change, and is used by both the runtime (before the fact, to decide whether
+ * to hold the call) and the derived invariant (after the fact, over committed rows) —
+ * so the rule the platform enforces and the rule it proves cannot drift apart.
+ */
+export interface SubjectApprovalClause {
+  when: string;
+  approverScope: string;
+  /** How the requirement is explained to the person whose action was held. */
+  because: string;
+}
+
 export type ApprovalRule =
   | { mode: "never" }
   | { mode: "always" }
-  | { mode: "above_amount"; amountCents: number };
+  | { mode: "above_amount"; amountCents: number }
+  /**
+   * Whether approval is needed is a property of the record, not of the input: a
+   * sanctions hit needs compliance, a high-risk case needs a second reviewer, a clean
+   * one needs nobody. Clauses are evaluated in order and the first match wins, so the
+   * strictest belongs first.
+   */
+  | { mode: "derived_from_subject"; clauses: SubjectApprovalClause[] };
 
 /**
  * Where a write capability's effect lands, and what finite thing it draws down.
@@ -40,11 +63,13 @@ export type ApprovalRule =
 export interface EffectDeclaration {
   /** One row per accepted invocation lands here. */
   table: string;
-  /** Column holding the amount moved; must equal the audited amount. */
-  amountColumn: string;
+  /** Column naming the subject row this effect acted on. */
+  subjectColumn: string;
+  /** Column holding the amount moved, for a capability that moves money. */
+  amountColumn?: string;
   /** Which rows count as live effects, e.g. `{ column: "status", equals: "issued" }`. */
   live?: { column: string; equals: string };
-  /** The pool this effect draws down: refunds draw down their payment. */
+  /** The pool this effect draws down, for an effect that consumes a finite balance. */
   conserves?: {
     table: string;
     /** Column on the effect table naming the pool row. */
@@ -52,6 +77,11 @@ export interface EffectDeclaration {
     /** Column on the pool table holding the total available. */
     amountColumn: string;
   };
+  /**
+   * At most one live effect per subject, for an act that can only happen once:
+   * a case is onboarded or declined once, a SAR is filed once.
+   */
+  oncePerSubject?: boolean;
 }
 
 export interface WritePolicy {
@@ -67,6 +97,12 @@ export interface WritePolicy {
   approverScope: string;
   /** Dot path into the validated input holding the money amount, if any. */
   amountField?: string;
+  /**
+   * The record this capability acts on: which table it lives in and which input
+   * field names it. Required for a data-derived approval rule, because that rule is
+   * a question asked of this row.
+   */
+  subject?: { table: string; idField: string };
   /** What the capability writes; the platform derives this capability's invariants from it. */
   effect?: EffectDeclaration;
 }
@@ -87,6 +123,12 @@ export interface CapabilityContext {
   now: Date;
   /** Correlates handler logs with the audit record for this invocation. */
   invocationId: string;
+  /**
+   * Set when this invocation is the replay of an approved request, so a handler can
+   * tell a first attempt from the execution that follows a countersignature. It cannot
+   * be set by a caller: only {@link decideApproval} produces one.
+   */
+  approvalId: string | null;
 }
 
 export interface ReadCapability<I extends z.ZodTypeAny = z.ZodTypeAny, O = unknown> {
@@ -118,6 +160,8 @@ export type Outcome =
   | "rate_limited"
   | "invalid_input"
   | "not_found"
+  /** The record moved under the caller; nothing was written. */
+  | "conflict"
   /** An invariant guarding this capability is violated; writes are refused until cleared. */
   | "halted"
   /** The effect broke an invariant and was rolled back. */

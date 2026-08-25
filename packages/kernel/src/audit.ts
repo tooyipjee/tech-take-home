@@ -1,4 +1,5 @@
 import { withClient } from "@platform/db";
+import { ROLE_SCOPES } from "./auth.ts";
 import { listCapabilities } from "./registry.ts";
 
 export interface AuditEntry {
@@ -46,10 +47,19 @@ export async function listAuditLog(limit = 100): Promise<AuditEntry[]> {
 /**
  * Mirrors the in-code registry into Postgres at boot so the declared policy of
  * every capability is queryable by risk and compliance without reading TypeScript.
+ *
+ * The role → scope map goes with it, so an invariant can ask in SQL whether the person
+ * who decided an approval actually held the scope it demanded.
  */
 export async function syncRegistry(): Promise<number> {
   const capabilities = listCapabilities();
   await withClient(async (client) => {
+    await client.query("delete from role_scopes");
+    for (const [role, scopes] of Object.entries(ROLE_SCOPES)) {
+      for (const scope of scopes) {
+        await client.query("insert into role_scopes (role, scope) values ($1, $2)", [role, scope]);
+      }
+    }
     for (const capability of capabilities) {
       await client.query(
         `insert into capability_registry (name, kind, scope, summary, policy)

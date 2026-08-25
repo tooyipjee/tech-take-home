@@ -1,10 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { Actor, CapabilityInput, CapabilityName, CapabilityOutput } from './contracts';
+import type {
+  Actor,
+  CapabilityInput,
+  CapabilityName,
+  CapabilityOutput,
+  CapabilityRegistry,
+  KycCapabilityDescriptor,
+} from './contracts';
+import { toRegistry } from './contracts';
 import type { KycPlatformClient, KycResult } from './client';
-import { createHttpPlatformClient } from './client';
-import { MockKernel } from './mock/kernel';
-import { ACTOR_DIRECTORY } from './mock/fixtures';
+import { createPlatformClient } from './client';
 
 export interface Toast {
   id: number;
@@ -17,8 +23,9 @@ interface PlatformContextValue {
   actor: Actor;
   directory: Actor[];
   setActorId: (userId: string) => void;
-  adapter: 'mock' | 'http';
   client: KycPlatformClient;
+  /** The registry as the platform serves it, so the UI states the rule it is actually under. */
+  registry: CapabilityRegistry;
   /** Version counter that changes whenever an invocation may have moved state, so views refetch. */
   version: number;
   bump: () => void;
@@ -33,25 +40,30 @@ interface PlatformContextValue {
 
 const PlatformContext = createContext<PlatformContextValue | null>(null);
 
-/**
- * The mock runtime is the default so the app runs with nothing else up. `?adapter=api` points the
- * same code at the platform API host, which Vite proxies at /api — the app's only switch, because
- * everything below `client` is the platform's.
- */
-const useApi = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('adapter') === 'api';
-
 /** Outcomes the runtime can return that are refusals rather than results. */
-const REFUSED = new Set(['denied_scope', 'denied_limit', 'rate_limited', 'invalid_input', 'not_found', 'error']);
+const REFUSED = new Set([
+  'denied_scope',
+  'denied_limit',
+  'rate_limited',
+  'invalid_input',
+  'not_found',
+  'conflict',
+  'halted',
+  'invariant_violation',
+  'error',
+]);
 
 export function PlatformProvider({ children }: { children: ReactNode }) {
-  const first = ACTOR_DIRECTORY[0] as Actor;
-  const [actorId, setActorId] = useState(first.id);
-  const actor = ACTOR_DIRECTORY.find((entry) => entry.id === actorId) ?? first;
   const clientRef = useRef<KycPlatformClient>();
-  if (!clientRef.current) {
-    clientRef.current = useApi ? createHttpPlatformClient('/api', actor) : new MockKernel(ACTOR_DIRECTORY);
-  }
+  if (!clientRef.current) clientRef.current = createPlatformClient();
   const client = clientRef.current;
+
+  // Identity is the platform's: the directory is the seeded platform users, not a list
+  // this app keeps, and switching identity only changes which one the SDK sends.
+  const [directory, setDirectory] = useState<Actor[]>([]);
+  const [registry, setRegistry] = useState<CapabilityRegistry>({});
+  const [actorId, setActorId] = useState<string | null>(null);
+  const actor = directory.find((entry) => entry.id === actorId) ?? null;
 
   const [version, setVersion] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -59,6 +71,15 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
   const bump = useCallback(() => setVersion((value) => value + 1), []);
 
   useEffect(() => {
+    void client.users().then((users) => {
+      setDirectory(users);
+      setActorId((current) => current ?? users[0]?.id ?? null);
+    });
+    void client.capabilities().then((descriptors) => setRegistry(toRegistry(descriptors)));
+  }, [client]);
+
+  useEffect(() => {
+    if (!actor) return;
     client.setActor(actor);
     bump();
   }, [client, actor, bump]);
@@ -93,23 +114,25 @@ export function PlatformProvider({ children }: { children: ReactNode }) {
     [client, pushToast, bump],
   );
 
-  const value = useMemo<PlatformContextValue>(
+  const value = useMemo<Omit<PlatformContextValue, 'actor'>>(
     () => ({
-      actor,
-      directory: ACTOR_DIRECTORY,
+      directory,
       setActorId,
-      adapter: client.kind,
       client,
+      registry,
       version,
       bump,
       toasts,
       dismissToast: (id) => setToasts((current) => current.filter((item) => item.id !== id)),
       invoke,
     }),
-    [actor, client, version, bump, toasts, invoke],
+    [directory, registry, client, version, bump, toasts, invoke],
   );
 
-  return <PlatformContext.Provider value={value}>{children}</PlatformContext.Provider>;
+  if (!actor) return <div className="boot">Connecting to the platform…</div>;
+  return (
+    <PlatformContext.Provider value={{ ...value, actor }}>{children}</PlatformContext.Provider>
+  );
 }
 
 export function usePlatform(): PlatformContextValue {
@@ -184,4 +207,10 @@ export function usePlatformData<T>(load: (client: KycPlatformClient) => Promise<
   }, [client, version, ...deps]);
 
   return { data, error };
+}
+
+/** The served declaration for one capability, or null before the registry has loaded. */
+export function useDescriptor(capability: CapabilityName): KycCapabilityDescriptor | null {
+  const { registry } = usePlatform();
+  return registry[capability] ?? null;
 }

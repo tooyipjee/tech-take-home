@@ -11,8 +11,8 @@ concerns. Code that re-implements any of them in an app or a handler is wrong ev
 surface · `packages/db` migrations, seed and `DataSource` · `packages/sdk` the only platform import
 an app may use, alongside `packages/app-kit` (bound client, identity switcher, outcome banner,
 stylesheet) · `apps/api` Fastify host · `apps/console` the platform's own screens plus a launcher.
-An app is a folder under `apps/` with its own Vite config and port — `apps/refunds`,
-`apps/review-queue`, `apps/kyc-review` — and a new app is a new folder, nothing more.
+An app is a folder under `apps/` with its own Vite config and port — today only `apps/kyc-review`,
+the KYC review queue — and a new app is a new folder, nothing more.
 
 **Two tiers of work.** Building an app on top of the existing capabilities and invariants is tier 1
 (`docs/devin/playbook-build-an-app.md`). Changing the kernel, the invariants, a migration, the
@@ -24,7 +24,7 @@ a platform edit with no change record fails.
 **Invariants.** `packages/kernel/src/invariants.ts` generates SQL statements that must return no rows,
 from two sources: platform axioms, and each write capability's declaration — `maxAmountCents`,
 `approval`, `maxPerHour`, `idempotent` and `effect` (the table the row lands in, the amount
-column, the live-row predicate, the pool it draws down). Declaring a money-moving capability
+column, the live-row predicate, the pool it draws down, `oncePerSubject`). Declaring a write
 derives its rules; one without an `effect` refuses to register. Never hand-write an invariant for a
 rule a declaration could express. They are checked as postconditions inside the writing transaction, by a reconciler every 15s,
 and — where expressible — by database triggers. A violated invariant halts the capabilities it
@@ -33,8 +33,10 @@ admin (`invariants:clear`) can resume, and only once the invariant passes again.
 and the console's **Invariants** tab. Invariants are platform-owned: apps never define or weaken one.
 
 **Adding a verb.** `defineRead` / `defineWrite` in `packages/capabilities`. Write policies must
-declare `scope`, `idempotent: true`, `limits`, `approval`, `approverScope`, `amountField`, and
-`effect` when they move money. Malformed or unprovable declarations throw at boot.
+declare `scope`, `idempotent: true`, `limits`, `approval`, `approverScope`, an `effect`, and
+`amountField` when they move money. `approval: { mode: "derived_from_subject", clauses }` asks the
+subject row in SQL which scope must countersign, so a requirement that depends on the record is
+still the platform's to decide; `previewApproval()` gives an app the same answer for display. Malformed or unprovable declarations throw at boot.
 
 **Data access.** Handlers receive `ctx.data`, a `DataSource` bound to the runtime's transaction
 *and* to the invocation: the platform stamps `invocation_id` on every effect row, so a handler
@@ -45,17 +47,17 @@ cannot write a row that is not attributable to an audited invocation. New querie
 `denied_limit`, `rate_limited`, `invalid_input`, `not_found`, `halted`, `invariant_violation`,
 `error`.
 
-**Seeded principals.** `u_agent` (agent), `u_supervisor` (supervisor, can decide approvals and
-read audit), `u_admin` and `u_admin_2` (admins, adding `flags:write`, `kyc:sar` and
-`invariants:clear`; two of them so a compliance approval has a second pair of eyes). All roles
-have `invariants:read`. Every app header switches acting user; the API takes `x-platform-user`.
+**Seeded principals.** `u_agent` (agent: `kyc:read`, `kyc:pii`, `kyc:review`), `u_supervisor`
+(supervisor: adds `kyc:decide`, `approvals:*`, `audit:read`), `u_admin` and `u_admin_2` (admins:
+add `kyc:sar` and `invariants:clear`; two of them so a compliance approval has a second pair of
+eyes). All roles have `invariants:read`. Every app header switches acting user; the API takes
+`x-platform-user`.
 
 **Deciding an approval** needs `approvals:decide` *and* the capability's declared `approverScope`,
 and never the requester themself.
 
 **Commands.** `npm run setup` (Postgres + migrate + seed) · `npm run dev` (api :8080 · console
-:5173 · kyc :5174 · refunds :5175 · review queue :5176; one at a time with `dev:kyc`,
-`dev:refunds`, `dev:queue`) · `npm run lint` (boundary + tier check) · `npm run typecheck` · `npm test` ·
+:5173 · kyc :5174; one at a time with `dev:api`, `dev:console`, `dev:kyc`) · `npm run lint` (boundary + tier check) · `npm run typecheck` · `npm test` ·
 `npm run test:db` (invariants against a real database) · `npm run reconcile` (one-shot invariant
 check, non-zero exit on violation).
 

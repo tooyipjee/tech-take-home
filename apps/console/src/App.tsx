@@ -15,7 +15,7 @@ const TABS = [
   { id: "apps", label: "Apps", scopes: [] },
   { id: "approvals", label: "Approvals", scopes: ["approvals:read", "approvals:decide"] },
   { id: "audit", label: "Audit log", scopes: ["audit:read"] },
-  { id: "registry", label: "Capability registry", scopes: ["flags:write"] },
+  { id: "registry", label: "Capability registry", scopes: [] },
   { id: "invariants", label: "Invariants", scopes: ["invariants:read"] },
 ] as const;
 

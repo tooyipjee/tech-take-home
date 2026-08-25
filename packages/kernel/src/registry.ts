@@ -7,11 +7,13 @@ const identifier = z.string().regex(/^[a-z_][a-z0-9_]*$/, "must be a lowercase s
 
 const effectSchema = z.object({
   table: identifier,
-  amountColumn: identifier,
+  subjectColumn: identifier,
+  amountColumn: identifier.optional(),
   live: z.object({ column: identifier, equals: z.string().regex(/^[a-z_]+$/) }).optional(),
   conserves: z
     .object({ table: identifier, via: identifier, amountColumn: identifier })
     .optional(),
+  oncePerSubject: z.boolean().optional(),
 });
 
 const writePolicySchema = z.object({
@@ -25,9 +27,22 @@ const writePolicySchema = z.object({
     z.object({ mode: z.literal("never") }),
     z.object({ mode: z.literal("always") }),
     z.object({ mode: z.literal("above_amount"), amountCents: z.number().int().nonnegative() }),
+    z.object({
+      mode: z.literal("derived_from_subject"),
+      clauses: z
+        .array(
+          z.object({
+            when: z.string().min(1),
+            approverScope: z.string().min(1),
+            because: z.string().min(1),
+          }),
+        )
+        .min(1),
+    }),
   ]),
   approverScope: z.string().min(1),
   amountField: z.string().min(1).optional(),
+  subject: z.object({ table: identifier, idField: z.string().min(1) }).optional(),
   effect: effectSchema.optional(),
 });
 
@@ -76,9 +91,23 @@ export function defineWrite<I extends z.ZodTypeAny, O>(
   }
   // A capability that moves money must say where the money lands, or the platform
   // has no way to prove afterwards that it moved the right amount to the right place.
-  if (policy.limits.maxAmountCents !== null && !policy.effect) {
+  if (policy.limits.maxAmountCents !== null && (!policy.effect || !policy.effect.amountColumn)) {
     throw new PolicyDeclarationError(
-      `write capability ${capability.name} moves money but declares no effect, so no invariant can be derived for it`,
+      `write capability ${capability.name} moves money but declares no effect amount, so no invariant can be derived for it`,
+    );
+  }
+  // Approval that depends on the record needs the record named, for the runtime to
+  // ask the question before the write and for the invariant to ask it afterwards.
+  if (policy.approval.mode === "derived_from_subject" && !policy.subject) {
+    throw new PolicyDeclarationError(
+      `write capability ${capability.name} derives approval from its subject but declares no subject table`,
+    );
+  }
+  // Every write lands somewhere. Without an effect table there is nothing to prove the
+  // capability against afterwards, so the audit row would be the only evidence.
+  if (!policy.effect) {
+    throw new PolicyDeclarationError(
+      `write capability ${capability.name} declares no effect, so no invariant can be derived for it`,
     );
   }
   const registered: WriteCapability<I, O> = { ...capability, kind: "write" };

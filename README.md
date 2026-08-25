@@ -1,17 +1,19 @@
 # Internal Tool Platform
 
-One framework, one Postgres database, many small back-office apps talking to it — and a layer in
-between that decides what each app is allowed to do.
+One framework, one Postgres database, back-office apps talking to it — and a layer in between
+that decides what each app is allowed to do.
 
-The apps (refund queue, review queue, flag admin) are written by Devin, so nothing load-bearing
-may live in them: an app can only call **capabilities**, and every capability declares its
-policy — who may call it, how much money it may move, how often, whether it needs a second
-person's approval. The runtime enforces that declaration; the app cannot bypass it, because the
-app never touches the database.
+The apps are written by Devin, so nothing load-bearing may live in them: an app can only call
+**capabilities**, and every capability declares its policy — who may call it, how often, whether
+it needs a second person's approval, and where its effect lands. The runtime enforces that
+declaration; the app cannot bypass it, because the app never touches the database.
+
+Today the repository contains exactly one app, the KYC review queue, and the whole platform is
+proved against it.
 
 ```
-apps/<app-name>          a screen, written by Devin
-                         invoke("refunds.issue", { paymentId, amountCents })
+apps/kyc-review          a screen, written by Devin
+                         invoke("kyc.case.approve", { caseId, revision, note })
 ─────────────────────────────────────────────────────────  trust boundary
 packages/capabilities    capability = declared policy + handler, human-reviewed
 packages/kernel          runtime: scope → validate → rate → ceiling → approval
@@ -20,24 +22,26 @@ packages/db              Postgres: one database, append-only history,
                                    constraints and triggers
 ```
 
-Three back-office apps, one guard layer, one database. Everything the platform refuses — over
-the ceiling, unapproved, out of scope, replayed — is refused in the same place, once.
+Everything the platform refuses — out of scope, unapproved, over the rate, replayed, stale — is
+refused in the same place, once.
 
 ## Run it
 
 ```bash
 npm install
 npm run setup     # Postgres in Docker, migrate, seed
-npm run dev       # api :8080 · console :5173 · refunds :5175 · review queue :5176 · kyc :5174
+npm run dev       # api :8080 · console :5173 · kyc review queue :5174
 ```
 
 Open the console at <http://localhost:5173>. Its **Apps** tab is the launcher: every app folder's
-`app.json` becomes a tile, offered or locked according to the signed-in principal's scopes. The
-**signed in as** switcher in the header is a mock identity provider — it picks the principal
-(Avery, agent · Sam, supervisor · Robin, admin), the API reads it from the `x-platform-user`
-header, and it stands in for an OAuth2/OIDC sign-in (swapping it for the real thing changes
-`resolvePrincipal` and nothing else). Tile availability is presentation only; the runtime
-re-checks scopes on every capability call.
+`app.json` becomes a tile, offered or locked according to the signed-in principal's scopes — today
+there is one, the KYC review queue. The **signed in as** switcher in the header is a mock identity
+provider: it picks the principal (Avery, reviewer · Sam, lead · Robin and Dana, compliance), the API
+reads it from the `x-platform-user` header, and it stands in for an OAuth2/OIDC sign-in (swapping it
+for the real thing changes `resolvePrincipal` and nothing else). Two compliance officers exist
+because four-eyes plus a compliance-only approval tier means a request raised by the only officer
+could never be cleared. Tile availability is presentation only; the runtime re-checks scopes on
+every capability call.
 
 ## Drive it
 
@@ -45,16 +49,18 @@ Each row is a rule being enforced somewhere the app can't reach:
 
 | Do this | What happens | Enforced by |
 | --- | --- | --- |
-| As **Avery**, refund $42 on `pay_2001` | `ok` — money moved and audited in one transaction | — |
-| Refund $600 on `pay_2003` | `pending_approval`; the handler never ran | `approval.above_amount: 50000` |
-| Switch to **Sam** → *Approvals* → Approve | the runtime replays the request as Avery under a grant only it can mint | approver scope |
-| Back as Avery, refund $2,500 on `pay_2004` | `denied_limit` | `limits.maxAmountCents` |
-| As Avery, open the **Audit log** tab | `403` — and the denial is itself audited | `audit:read` scope |
+| As **Robin**, approve `KYC-1041` (low risk, clean) | `ok` — the decision and its audit row commit together | — |
+| As **Avery**, approve `KYC-1043` | `denied_scope` — a reviewer does not hold `kyc:decide` | `policy.scope` |
+| As **Robin**, approve `KYC-1043` (high risk) | `pending_approval`; the handler never ran | `approval.derived_from_subject`, asked of the case in SQL |
+| Approve your own request in **Approvals** | denied — four-eyes | `approvals.decided_by_a_second_person` |
+| As **Sam**, clear the approval on `KYC-1045` (unresolved OFAC hit) | denied — that case demands an approver holding `kyc:sar` | the clause stored with the request |
+| **Reveal PII** on any case | needs a justification, metered at 20/hour, and audited on its own | `kyc.case.pii.reveal` |
+| Decide the same case twice, or from a stale tab | `conflict`, and a double-click replays instead of deciding twice | revision + idempotency key |
 | Open **Invariants** → *Reconcile now* | every rule re-proved against committed data, each showing what it was derived from | — |
-| In `psql`: `update payments set amount_cents = 1000 where id = 'pay_2004'`, then reconcile | `refunds.issue.conserves_payments` fails → `refunds.issue` halts and returns `halted`; other capabilities keep serving; an admin cannot clear the halt until the data is repaired | reconciler |
+| In `psql`: delete a decision's audit row, then reconcile | `kyc.case.approve.effects_are_attributed` fails → that capability halts and returns `halted`; every other capability keeps serving | reconciler |
 
-The **Audit log** tab (as Sam) is the whole story: every call, its outcome, its amount, and who
-made it.
+The **Audit log** tab (as Sam) is the whole story: every call, its outcome, and who made it —
+including the refusals.
 
 ## Test it
 
@@ -66,9 +72,10 @@ npm run typecheck
 npm run reconcile # one-shot check of committed data; non-zero exit on a violation
 ```
 
-`npm run test:db` is the interesting one. It doesn't test the happy path — it inserts refunds by
-raw SQL, forges audit rows, edits history, and runs a handler that moves ten times what it
-declared, then asserts the database or the runtime stopped it.
+`npm run test:db` is the interesting one. It doesn't test the happy path — it writes decisions by
+raw SQL with no invocation behind them, forges audit rows to fake a rate limit and an idempotency
+replay, tries to rewrite history, approves as the requester, and approves a sanctions case as a
+supervisor, then asserts the database or the runtime stopped it.
 
 CI is split the same way the work is. `.github/workflows/framework.yml` runs the whole list
 above, including the adversarial suite against a Postgres service container and migrations
@@ -85,24 +92,36 @@ audited did not legitimately happen") or from the policy a human already reviewe
 
 ```ts
 policy: {
-  limits: { maxAmountCents: 200_000, maxPerHour: 10 },
-  approval: { mode: "above_amount", amountCents: 50_000 },
+  scope: "kyc:decide",
+  limits: { maxAmountCents: null, maxPerHour: 50 },
   idempotent: true,
-  effect: {                                    // where the money lands
-    table: "refunds", amountColumn: "amount_cents",
-    conserves: { table: "payments", via: "payment_id", amountColumn: "amount_cents" },
+  subject: { table: "kyc_cases", idField: "caseId" },
+  approval: {
+    mode: "derived_from_subject",          // asked of the case, not of the input
+    clauses: [
+      { when: "unresolved sanctions hit", approverScope: "kyc:sar", because: "…" },
+      { when: "s.risk_band = 'high' or any unresolved hit", approverScope: "kyc:decide", because: "…" },
+    ],
+  },
+  effect: {                                 // where the decision lands
+    table: "kyc_case_decisions", subjectColumn: "case_id", oncePerSubject: true,
   },
 }
 ```
 
-That block generates `refunds.issue.{respects_declared_ceiling, carries_the_declared_approval,
-respects_declared_rate, is_idempotent, effects_are_attributed, conserves_payments}` — and the
-thresholds inside the generated SQL are read back out of the registry, so a rule can never drift
-from the declaration it polices. A capability that moves money without declaring an `effect`
-refuses to start.
+That block generates `kyc.case.approve.{carries_the_declared_approval, respects_declared_rate,
+is_idempotent, effects_are_attributed, happens_at_most_once_per_subject}` — and the thresholds and
+clauses inside the generated SQL are read back out of the registry, so a rule can never drift from
+the declaration it polices. A write capability that declares no `effect` refuses to register,
+because nothing could be derived for it.
+
+The same clauses answer two different questions: the runtime asks them *before* the write to
+decide whether to suspend it, and the invariant asks them *after* the fact of committed rows. The
+app asks neither — `kyc.cases.get` returns what the runtime would demand, so the UI can warn a
+reviewer without keeping a second copy of the rule.
 
 Each invariant is then proved three times: by the database (constraints, append-only triggers),
-as a postcondition inside the writing transaction (fails → the money rolls back, the refusal is
+as a postcondition inside the writing transaction (fails → the effect rolls back, the refusal is
 audited), and by a reconciler on a timer (fails → the capabilities that rule guards are halted).
 Why three: see [ADR 0006](docs/adr/0006-invariants-are-enforced-three-times.md).
 
@@ -124,21 +143,19 @@ neither.
 | Path | What it is |
 | --- | --- |
 | `packages/kernel` | Registry, policy types, invocation runtime, audit, invariants, reconciler |
-| `packages/capabilities` | The reviewed surface: refunds, feature flags, review queue |
+| `packages/capabilities` | The reviewed surface: the `kyc.*` capabilities |
 | `packages/db` | Migrations, seed, and the `DataSource` handlers are bound to |
 | `packages/sdk` | The only thing an app may import |
 | `packages/app-kit` | What an app gets besides the SDK: bound client, identity switcher, outcome banner, stylesheet |
 | `apps/api` | Fastify host: identity, invocation, approvals, audit, invariants |
 | `apps/console` | Platform surface: approvals, audit log, capability registry, invariants, app launcher |
-| `apps/refunds` | Refunds — an app |
-| `apps/review-queue` | Customer review queue — an app |
-| `apps/kyc-review` | KYC review queue — an app |
+| `apps/kyc-review` | KYC review queue — the app |
 
 `packages/*` is the platform: the trust boundary, the data layer, and the only surfaces an app may
 import (`@platform/sdk`, `@platform/app-kit`). `apps/*` is everything above it, one folder per
 deployable. The console is not an app either — it is the platform's own screens plus a launcher.
 
-**A new app is a new folder.** Copy the shape of `apps/review-queue`: a `package.json`, an
+**A new app is a new folder.** Copy the shape of `apps/kyc-review`: a `package.json`, an
 `index.html`, a `vite.config.ts` with its own port, `src/`, and an `app.json` describing the app
 (name, url, scopes). Add a `dev:<name>` script at the root, and that is the whole ceremony — the
 launcher discovers every `apps/*/app.json` and the boundary check picks up every folder under
@@ -152,9 +169,7 @@ the folder: the new app needs its dev server, and the console's Vite watcher onl
 | Command | Purpose |
 | --- | --- |
 | `npm run setup` | Postgres up, migrate, reset + seed |
-| `npm run dev` | API, console and every app together |
-| `npm run dev:refunds` | Just the refunds app, on :5175 |
-| `npm run dev:queue` | Just the customer review queue, on :5176 |
+| `npm run dev` | API, console and the app together |
 | `npm run dev:kyc` | Just the KYC review queue, on :5174 |
 | `npm run db:reset` | Wipe transactional state, re-seed |
 | `npm run typecheck` | `tsc --noEmit` across the workspace |
@@ -166,6 +181,7 @@ the folder: the new app needs its dev server, and the console's Vite watcher onl
 ## Documentation
 
 - [Architecture](docs/architecture.md) — the trust boundary and the invocation pipeline in detail
+- [KYC review queue](docs/apps/kyc-review-queue.md) — the app, its capabilities and its policy
 - [Authoring a capability](docs/authoring-a-capability.md) — the workflow humans and Devin share
 - [Decisions](docs/adr) — why it is built this way, and what was deliberately not built
 - [Playbook, tier 1](docs/devin/playbook-build-an-app.md) — build an app from what exists
@@ -175,5 +191,5 @@ the folder: the new app needs its dev server, and the console's Vite watcher onl
 
 ## Status
 
-Framework plus one worked example. The target apps are deliberately not built yet:
-`refunds.issue` exists to prove the enforcement path, not to be the product.
+One framework, one database, one app. KYC review is the product; everything under `packages/` is
+what makes the next app a prompt rather than a project.

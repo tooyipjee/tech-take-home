@@ -15,7 +15,6 @@ type UsedSurface = Pick<
 >;
 
 export interface KycPlatformClient extends UsedSurface {
-  readonly kind: 'mock' | 'http';
   setActor(actor: Actor): void;
   approvals(status?: string): Promise<KycApproval[]>;
 }
@@ -24,18 +23,18 @@ export interface KycPlatformClient extends UsedSurface {
 export type KycResult<N extends CapabilityName> = InvokeResult<CapabilityOutput<N>>;
 
 /**
- * Adapter for the platform API host, selected with `?adapter=api`. It adds nothing to
- * the SDK client but the identity switch: the wire format, the `x-platform-user` header and the
- * idempotency key all belong to the platform.
+ * The platform API host, which Vite proxies at /api. It adds nothing to the SDK client but
+ * the identity switch: the wire format, the `x-platform-user` header and the idempotency key
+ * all belong to the platform. There is no second implementation — an in-app kernel would be a
+ * second copy of the rules, free to be more permissive than the one that is enforced.
  */
-export function createHttpPlatformClient(baseUrl: string, initialActor: Actor): KycPlatformClient {
-  let actor = initialActor;
-  const platform = createClient(() => actor.id, baseUrl);
+export function createPlatformClient(baseUrl = '/api'): KycPlatformClient {
+  let actorId = '';
+  const platform = createClient(() => actorId, baseUrl);
   return {
     ...platform,
-    kind: 'http',
     setActor(next) {
-      actor = next;
+      actorId = next.id;
     },
     approvals: (status) => platform.approvals(status) as Promise<KycApproval[]>,
   };

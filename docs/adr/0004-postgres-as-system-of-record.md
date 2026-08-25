@@ -12,8 +12,9 @@ an unauditable second ledger.
 ## Decision
 
 For now, one Postgres holds both: platform state (`platform_users`, `capability_registry`,
-`approvals`, `idempotency_keys`, `audit_log`) and business data (`customers`, `payments`,
-`refunds`, `feature_flags`, `review_queue_items`).
+`approvals`, `idempotency_keys`, `audit_log`) and business data — today the KYC schema
+(`kyc_cases` and its documents, screening hits, risk signals, decisions, disclosures and SARs;
+originally `payments`/`refunds`, replaced when KYC became the only app).
 
 ## Consequences
 
@@ -21,7 +22,9 @@ For now, one Postgres holds both: platform state (`platform_users`, `capability_
   commit in the same transaction. Across a service boundary that becomes a dual-write problem, and
   the honest answer there is an outbox — deliberately not built yet.
 - Demo apps work end-to-end with no external dependencies.
-- The risk is real: `refunds` here is a record of intent, not a ledger. Before this platform issues
-  a refund anyone reconciles against, `insertRefund` must become a call to the payments service and
-  `DataSource` gains a driver boundary. Handlers are already the only code that touches
-  `ctx.data`, so that change does not reach app code.
+- The risk is real, and it did not go away with refunds: `kyc_cases` here is the record a regulator
+  would ask about, not a copy of one held elsewhere. Before a real KYC vendor or core system exists,
+  `DataSource` must gain a driver boundary and the write methods become calls to it. Handlers are
+  already the only code that touches `ctx.data`, so that change does not reach app code — but the
+  atomic effect-plus-audit property is exactly what a service boundary costs, and the honest answer
+  there is an outbox.

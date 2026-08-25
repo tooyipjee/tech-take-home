@@ -1,39 +1,267 @@
 import { withClient } from "./pool.ts";
 
 const users = [
-  { id: "u_agent", email: "avery@fin.example", name: "Avery (Support Agent)", role: "agent" },
-  { id: "u_supervisor", email: "sam@fin.example", name: "Sam (Supervisor)", role: "supervisor" },
-  { id: "u_admin", email: "robin@fin.example", name: "Robin (Platform Admin)", role: "admin" },
+  { id: "u_agent", email: "avery@fin.example", name: "Avery Nolan (KYC Reviewer)", role: "agent" },
+  { id: "u_supervisor", email: "sam@fin.example", name: "Sam Okafor (KYC Lead)", role: "supervisor" },
+  { id: "u_admin", email: "robin@fin.example", name: "Robin Vale (Compliance)", role: "admin" },
   // Four-eyes needs two holders of every approver scope, or an approval only one
   // person can raise is an approval nobody can decide.
-  { id: "u_admin_2", email: "dana@fin.example", name: "Dana (Compliance Admin)", role: "admin" },
+  { id: "u_admin_2", email: "dana@fin.example", name: "Dana Whitfield (Compliance)", role: "admin" },
 ];
 
-const customers = [
-  { id: "cus_1001", name: "Nadia Okafor", email: "nadia@example.com", risk: "low" },
-  { id: "cus_1002", name: "Marco Silva", email: "marco@example.com", risk: "medium" },
-  { id: "cus_1003", name: "Priya Raman", email: "priya@example.com", risk: "low" },
-  { id: "cus_1004", name: "Tom Becker", email: "tom@example.com", risk: "high" },
-];
+interface SeedCase {
+  id: string;
+  reference: string;
+  applicantName: string;
+  country: string;
+  status: string;
+  riskBand: string;
+  riskScore: number;
+  submittedHoursAgo: number;
+  slaInHours: number;
+  assignedTo: string | null;
+  productTier: string;
+  volume: number;
+  fullName: string;
+  email: string;
+  dateOfBirth: string;
+  nationalId: string;
+  address: string;
+  documents: { id: string; type: string; verification: string; note?: string }[];
+  hits: {
+    id: string;
+    provider: string;
+    list: string;
+    matchedName: string;
+    strength: number;
+    resolution: string;
+  }[];
+  signals: { label: string; points: number; detail: string }[];
+}
 
-const payments = [
-  { id: "pay_2001", cus: "cus_1001", amount: 4200, desc: "Pro plan - monthly" },
-  { id: "pay_2002", cus: "cus_1002", amount: 18900, desc: "Hardware terminal" },
-  { id: "pay_2003", cus: "cus_1003", amount: 75000, desc: "Annual plan - Team" },
-  { id: "pay_2004", cus: "cus_1004", amount: 250000, desc: "Enterprise onboarding fee" },
-  { id: "pay_2005", cus: "cus_1002", amount: 9900, desc: "Overage charges" },
-];
-
-const flags = [
-  { key: "refunds.instant_payout", description: "Push refunds to instant rails", enabled: false, pct: 0 },
-  { key: "console.bulk_actions", description: "Bulk actions in review queues", enabled: true, pct: 100 },
-  { key: "risk.new_scoring_model", description: "v2 risk scoring for disputes", enabled: false, pct: 25 },
-];
-
-const reviewItems = [
-  { id: "rq_1", cus: "cus_1004", pay: "pay_2004", kind: "kyc_mismatch", note: "Document name does not match account holder" },
-  { id: "rq_2", cus: "cus_1002", pay: "pay_2002", kind: "chargeback_risk", note: "Customer disputed a similar charge last month" },
-  { id: "rq_3", cus: "cus_1001", pay: null, kind: "manual_review", note: "Requested account closure with balance outstanding" },
+/**
+ * Six onboarding cases spanning the decisions the queue exists to make: a clean one that
+ * needs nobody, a weak adverse-media hit, an unresolved PEP, a case waiting on documents,
+ * a strong sanctions match that only compliance can decide, and a low-risk case already
+ * being worked. No case is seeded in a terminal state: a decision is an effect, and an
+ * effect with no audited invocation behind it is exactly what the invariants forbid.
+ */
+const cases: SeedCase[] = [
+  {
+    id: "case_1041",
+    reference: "KYC-1041",
+    applicantName: "Marcus Delgado",
+    country: "US",
+    status: "pending_review",
+    riskBand: "low",
+    riskScore: 22,
+    submittedHoursAgo: 5,
+    slaInHours: 19,
+    assignedTo: null,
+    productTier: "Business Checking",
+    volume: 18_000,
+    fullName: "Marcus Delgado",
+    email: "marcus.delgado@northlinehvac.com",
+    dateOfBirth: "1986-03-14",
+    nationalId: "431-88-4821",
+    address: "2140 Rockwell Ave, Cleveland, OH 44113",
+    documents: [
+      { id: "doc_1", type: "passport", verification: "passed" },
+      { id: "doc_2", type: "proof_of_address", verification: "passed" },
+    ],
+    hits: [],
+    signals: [
+      { label: "Device reputation", points: 4, detail: "Known-good device, no VPN" },
+      { label: "Business age", points: 8, detail: "Registered 6 years ago in OH" },
+      { label: "Expected volume", points: 10, detail: "$18k/mo is typical for segment" },
+    ],
+  },
+  {
+    id: "case_1042",
+    reference: "KYC-1042",
+    applicantName: "Ana Sofía Ferreira",
+    country: "PT",
+    status: "pending_review",
+    riskBand: "medium",
+    riskScore: 48,
+    submittedHoursAgo: 22,
+    slaInHours: 2,
+    assignedTo: null,
+    productTier: "Cross-border Payouts",
+    volume: 140_000,
+    fullName: "Ana Sofía Ferreira",
+    email: "a.ferreira@vialusa.pt",
+    dateOfBirth: "1979-11-02",
+    nationalId: "PT-90114-7733",
+    address: "Rua do Almada 214, 4050-032 Porto",
+    documents: [
+      { id: "doc_3", type: "passport", verification: "passed" },
+      {
+        id: "doc_4",
+        type: "source_of_funds",
+        verification: "manual_review",
+        note: "Bank statements in Portuguese; totals reconcile",
+      },
+    ],
+    hits: [
+      {
+        id: "hit_1",
+        provider: "ComplyAdvantage",
+        list: "ADVERSE_MEDIA",
+        matchedName: "Ana S. Ferreira",
+        strength: 0.61,
+        resolution: "unresolved",
+      },
+    ],
+    signals: [
+      { label: "Cross-border corridor", points: 18, detail: "PT → BR payouts" },
+      { label: "Expected volume", points: 20, detail: "$140k/mo, above segment median" },
+      { label: "Adverse media", points: 10, detail: "Weak name match, 2019 article" },
+    ],
+  },
+  {
+    id: "case_1043",
+    reference: "KYC-1043",
+    applicantName: "Viktor Osei",
+    country: "AE",
+    status: "pending_review",
+    riskBand: "high",
+    riskScore: 81,
+    submittedHoursAgo: 30,
+    slaInHours: -6,
+    assignedTo: null,
+    productTier: "Treasury",
+    volume: 900_000,
+    fullName: "Viktor Osei",
+    email: "v.osei@meridiantrade.ae",
+    dateOfBirth: "1974-06-19",
+    nationalId: "AE-7741-20993",
+    address: "Office 1204, Burj Al Salam, Sheikh Zayed Rd, Dubai",
+    documents: [
+      { id: "doc_5", type: "passport", verification: "passed" },
+      {
+        id: "doc_6",
+        type: "source_of_funds",
+        verification: "manual_review",
+        note: "Trade invoices from three unrelated counterparties",
+      },
+      {
+        id: "doc_7",
+        type: "proof_of_address",
+        verification: "failed",
+        note: "Utility bill older than 90 days",
+      },
+    ],
+    hits: [
+      {
+        id: "hit_2",
+        provider: "Dow Jones",
+        list: "PEP",
+        matchedName: "Viktor Osei",
+        strength: 0.88,
+        resolution: "unresolved",
+      },
+    ],
+    signals: [
+      { label: "PEP association", points: 30, detail: "Close associate of a regional official" },
+      { label: "Expected volume", points: 26, detail: "$900k/mo treasury flows" },
+      { label: "Document quality", points: 15, detail: "Proof of address failed verification" },
+      { label: "Corridor risk", points: 10, detail: "AE → multiple high-risk jurisdictions" },
+    ],
+  },
+  {
+    id: "case_1044",
+    reference: "KYC-1044",
+    applicantName: "Lena Vogt",
+    country: "DE",
+    status: "info_requested",
+    riskBand: "medium",
+    riskScore: 44,
+    submittedHoursAgo: 50,
+    slaInHours: 26,
+    assignedTo: "u_agent",
+    productTier: "Business Checking",
+    volume: 62_000,
+    fullName: "Lena Vogt",
+    email: "lena@vogtdesign.de",
+    dateOfBirth: "1991-01-27",
+    nationalId: "DE-5521-88410",
+    address: "Kastanienallee 12, 10435 Berlin",
+    documents: [{ id: "doc_8", type: "drivers_license", verification: "passed" }],
+    hits: [],
+    signals: [
+      { label: "Missing documents", points: 22, detail: "No proof of address on file" },
+      { label: "Expected volume", points: 12, detail: "$62k/mo" },
+    ],
+  },
+  {
+    id: "case_1045",
+    reference: "KYC-1045",
+    applicantName: "Ibrahim Nasser",
+    country: "LB",
+    status: "pending_review",
+    riskBand: "high",
+    riskScore: 93,
+    submittedHoursAgo: 12,
+    slaInHours: 12,
+    assignedTo: null,
+    productTier: "Cross-border Payouts",
+    volume: 310_000,
+    fullName: "Ibrahim Nasser",
+    email: "i.nasser@levantexport.lb",
+    dateOfBirth: "1968-09-08",
+    nationalId: "LB-3390-11284",
+    address: "Rue Verdun 44, Beirut",
+    documents: [{ id: "doc_9", type: "passport", verification: "passed" }],
+    hits: [
+      {
+        id: "hit_3",
+        provider: "Refinitiv",
+        list: "OFAC_SDN",
+        matchedName: "Ibrahim Nassr",
+        strength: 0.94,
+        resolution: "unresolved",
+      },
+      {
+        id: "hit_4",
+        provider: "Refinitiv",
+        list: "EU_CONSOLIDATED",
+        matchedName: "I. Nasser",
+        strength: 0.77,
+        resolution: "unresolved",
+      },
+    ],
+    signals: [
+      { label: "Sanctions match", points: 50, detail: "Strong OFAC SDN name + DOB match" },
+      { label: "Jurisdiction", points: 25, detail: "FATF increased-monitoring jurisdiction" },
+      { label: "Expected volume", points: 18, detail: "$310k/mo" },
+    ],
+  },
+  {
+    id: "case_1046",
+    reference: "KYC-1046",
+    applicantName: "Grace Lindqvist",
+    country: "SE",
+    status: "pending_review",
+    riskBand: "low",
+    riskScore: 16,
+    submittedHoursAgo: 72,
+    slaInHours: -48,
+    assignedTo: "u_supervisor",
+    productTier: "Business Checking",
+    volume: 9_500,
+    fullName: "Grace Lindqvist",
+    email: "grace@lindqvistceramics.se",
+    dateOfBirth: "1994-04-30",
+    nationalId: "SE-19940430-2214",
+    address: "Sveavägen 88, 113 59 Stockholm",
+    documents: [
+      { id: "doc_10", type: "passport", verification: "passed" },
+      { id: "doc_11", type: "proof_of_address", verification: "passed" },
+    ],
+    hits: [],
+    signals: [{ label: "Low volume domestic", points: 6, detail: "Sole trader, SEK domestic only" }],
+  },
 ];
 
 export async function seed(): Promise<void> {
@@ -45,34 +273,65 @@ export async function seed(): Promise<void> {
         [user.id, user.email, user.name, user.role],
       );
     }
-    for (const customer of customers) {
+
+    for (const item of cases) {
       await client.query(
-        `insert into customers (id, name, email, risk_tier) values ($1, $2, $3, $4)
+        `insert into kyc_cases
+           (id, reference, applicant_name, country, status, risk_band, risk_score,
+            submitted_at, sla_due_at, assigned_to, product_tier, expected_monthly_volume_usd,
+            full_name, email, date_of_birth, national_id, address)
+         values ($1, $2, $3, $4, $5, $6, $7,
+                 now() - ($8 || ' hours')::interval, now() + ($9 || ' hours')::interval, $10, $11, $12,
+                 $13, $14, $15, $16, $17)
          on conflict (id) do nothing`,
-        [customer.id, customer.name, customer.email, customer.risk],
+        [
+          item.id,
+          item.reference,
+          item.applicantName,
+          item.country,
+          item.status,
+          item.riskBand,
+          item.riskScore,
+          String(item.submittedHoursAgo),
+          String(item.slaInHours),
+          item.assignedTo,
+          item.productTier,
+          item.volume,
+          item.fullName,
+          item.email,
+          item.dateOfBirth,
+          item.nationalId,
+          item.address,
+        ],
       );
-    }
-    for (const payment of payments) {
-      await client.query(
-        `insert into payments (id, customer_id, amount_cents, currency, status, description)
-         values ($1, $2, $3, 'USD', 'settled', $4)
-         on conflict (id) do nothing`,
-        [payment.id, payment.cus, payment.amount, payment.desc],
-      );
-    }
-    for (const flag of flags) {
-      await client.query(
-        `insert into feature_flags (key, description, enabled, rollout_pct)
-         values ($1, $2, $3, $4) on conflict (key) do nothing`,
-        [flag.key, flag.description, flag.enabled, flag.pct],
-      );
-    }
-    for (const item of reviewItems) {
-      await client.query(
-        `insert into review_queue_items (id, customer_id, payment_id, kind, status, note)
-         values ($1, $2, $3, $4, 'open', $5) on conflict (id) do nothing`,
-        [item.id, item.cus, item.pay, item.kind, item.note],
-      );
+
+      for (const doc of item.documents) {
+        await client.query(
+          `insert into kyc_documents (id, case_id, type, uploaded_at, verification, note)
+           values ($1, $2, $3, now() - ($4 || ' hours')::interval, $5, $6)
+           on conflict (id) do nothing`,
+          [doc.id, item.id, doc.type, String(item.submittedHoursAgo), doc.verification, doc.note ?? null],
+        );
+      }
+
+      for (const hit of item.hits) {
+        await client.query(
+          `insert into kyc_screening_hits
+             (id, case_id, provider, list, matched_name, match_strength, resolution)
+           values ($1, $2, $3, $4, $5, $6, $7) on conflict (id) do nothing`,
+          [hit.id, item.id, hit.provider, hit.list, hit.matchedName, hit.strength, hit.resolution],
+        );
+      }
+
+      for (const signal of item.signals) {
+        await client.query(
+          `insert into kyc_risk_signals (case_id, label, points, detail)
+           select $1, $2, $3, $4
+            where not exists (select 1 from kyc_risk_signals
+                               where case_id = $1 and label = $2)`,
+          [item.id, signal.label, signal.points, signal.detail],
+        );
+      }
     }
   });
 }
@@ -80,9 +339,13 @@ export async function seed(): Promise<void> {
 /** Truncates transactional state and re-seeds. Reference data survives. */
 export async function resetAndSeed(): Promise<void> {
   await withClient(async (client) => {
+    // Effect tables are append-only by trigger; truncate is DDL, so a reset is a
+    // deliberate administrative act rather than something a capability could do.
     await client.query(
-      `truncate audit_log, approvals, idempotency_keys, refunds, review_queue_items,
-                payments, feature_flags, customers, capability_halts, invariant_runs
+      `truncate audit_log, approvals, idempotency_keys,
+                kyc_case_events, kyc_case_decisions, kyc_pii_disclosures, kyc_sars,
+                kyc_documents, kyc_screening_hits, kyc_risk_signals, kyc_cases,
+                capability_halts, invariant_runs
        restart identity cascade`,
     );
   });

@@ -62,7 +62,7 @@ Read the policy block before the handler:
       convincingly.
 - [ ] Does the handler use only `ctx.data` and `input`? No imports of `pg`, no vendor SDKs, no
       reads of `process.env`.
-- [ ] Does the handler re-check business invariants (refundable balance, item still open)?
+- [ ] Does the handler re-check business invariants (the case is still open, the revision matches)?
       The runtime enforces policy; the handler enforces domain truth.
 
 ## Anti-patterns
@@ -71,5 +71,5 @@ Read the policy block before the handler:
 | --- | --- |
 | `if (user.role === "admin")` inside a handler | declare a `scope` |
 | A capability taking a SQL fragment or a table name | one capability per verb |
-| `refunds.adminIssue` with no ceiling to bypass approval | change the declared rule, in review |
+| `kyc.case.adminApprove` that skips the approval clause | change the declared rule, in review |
 | An app calling three capabilities to fake a transaction | one capability doing the whole unit |

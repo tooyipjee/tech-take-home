@@ -1,6 +1,11 @@
 export { defineRead, defineWrite, getCapability, listCapabilities, clearRegistry } from "./registry.ts";
-export { invoke, decideApproval, listApprovals } from "./runtime.ts";
-export type { InvokeRequest, ApprovalDecision, ApprovalRow } from "./runtime.ts";
+export { invoke, decideApproval, listApprovals, previewApproval } from "./runtime.ts";
+export type {
+  ApprovalDecision,
+  ApprovalRequirement,
+  ApprovalRow,
+  InvokeRequest,
+} from "./runtime.ts";
 export { listAuditLog, syncRegistry } from "./audit.ts";
 export {
   invariants,
@@ -23,8 +28,11 @@ export type { AuditEntry } from "./audit.ts";
 export { ROLE_SCOPES, resolvePrincipal, listPrincipals } from "./auth.ts";
 export { CapabilityError, PolicyDeclarationError } from "./errors.ts";
 export type {
+  ApprovalRule,
   Capability,
   CapabilityContext,
+  EffectDeclaration,
+  SubjectApprovalClause,
   CapabilityKind,
   InvokeResult,
   Outcome,

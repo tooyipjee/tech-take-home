@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { CapabilityName, CaseStatus, RiskBand } from '../platform/contracts';
-import { CAPABILITY_DESCRIPTORS } from '../platform/contracts';
+import { describePolicy } from '../platform/contracts';
+import { useDescriptor } from '../platform/PlatformProvider';
 
 export function Pill({ tone, children }: { tone: string; children: ReactNode }) {
   return <span className={`pill pill--${tone}`}>{children}</span>;
@@ -29,18 +30,12 @@ export function RiskPill({ band, score }: { band: RiskBand; score: number }) {
 
 /** Shows the registered policy the runtime will apply, so the rules are visible rather than implied. */
 export function PolicyChip({ capability }: { capability: CapabilityName }) {
-  const descriptor = CAPABILITY_DESCRIPTORS[capability];
-  const policy = descriptor.policy;
-  const detail =
-    'maxRows' in policy
-      ? `read · ≤${policy.maxRows} rows`
-      : `write · ${policy.limits.maxPerHour}/hour · approval: ${policy.derivedApproval ?? policy.approval.mode}`;
+  const descriptor = useDescriptor(capability);
+  if (!descriptor) return null;
   return (
     <span className="policy-chip" title={descriptor.summary}>
       <code>{capability}</code>
-      <span>
-        {policy.scope} · {detail}
-      </span>
+      <span>{describePolicy(descriptor)}</span>
     </span>
   );
 }
