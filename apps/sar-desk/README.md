@@ -1,6 +1,7 @@
 # SAR desk
 
-`npm run dev:sar` — http://localhost:5177 (needs `npm run dev:api` and a seeded database).
+`npm run dev` starts it with everything else — http://localhost:5177. On its own:
+`npx vite --config apps/sar-desk/vite.config.ts`, alongside `npm run dev:api` and a seeded database.
 
 Three verbs, all already on the platform:
 
