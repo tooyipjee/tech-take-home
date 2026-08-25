@@ -10,10 +10,25 @@ description: How to run and end-to-end test the capability-based internal tool p
 npm install
 npm run setup     # docker compose up db + migrate + seed; safe to re-run
 npm run db:reset  # truncates transactional state and re-seeds; run before each test pass
-npm run dev       # API on :8080, Vite console on :5173
+npm run dev       # API :8080, console :5173, kyc-review :5174, refunds :5175, review-queue :5176
 ```
+If the API 500s on `/api/invariants` with `column "invariant_id" does not exist`, the
+Docker volume straddles the old tenets→invariants migration rename. Fix with a fresh
+volume: `docker compose down -v && npm run setup` (restart the API afterwards — dropping
+the DB kills its pg pool).
 Postgres runs in the container `platform-db` on host port 5433. Inspect state with:
 `docker exec platform-db psql -U platform -d platform -c "select * from refunds;"`
+
+## Launcher / app discovery (console :5173)
+The console "Apps" tab globs `apps/*/app.json` via `import.meta.glob` in
+`apps/console/src/Launcher.tsx`. Adding a new `apps/<name>/app.json` yields a new tile
+without code changes, BUT the Vite dev server for the console may not detect files
+created outside `apps/console` (its root) — if the tile doesn't appear after a hard
+reload, restart just the console server: kill the `vite --config apps/console/...`
+process and re-run `npm run dev:console`. Deleting the folder IS picked up live.
+Platform tabs are scope-gated: Approvals (approvals:read+decide), Audit (audit:read),
+Registry (flags:write), Invariants (invariants:read); switching to a user lacking the
+active tab's scopes bounces to Apps.
 
 ## Identity
 No credentials. Identity is the `x-platform-user` header: `u_agent` (Avery, agent),
@@ -36,6 +51,14 @@ Payments: pay_2001 $42, pay_2002 $189, pay_2003 $750, pay_2004 $2500, pay_2005 $
 So $42 → `ok`, $600 on pay_2003/pay_2004 → `pending_approval`, $2500 → `denied_limit`.
 
 ## Useful adversarial probes
+Valid denial probes (routes exist in `apps/api/src/main.ts`; don't guess capability names):
+```bash
+curl -s localhost:8080/api/approvals -H 'x-platform-user: u_agent'   # 403 approvals:read
+curl -s localhost:8080/api/audit -H 'x-platform-user: u_agent'       # 403 audit:read
+curl -s -X POST localhost:8080/api/capabilities/flags.set/invoke \
+  -H 'content-type: application/json' -H 'x-platform-user: u_agent' \
+  -d '{"input":{"key":"x","value":true},"idempotencyKey":"probe-1"}' # denied_scope
+```
 ```bash
 # forged approval grant in the POST body (API should ignore it; main.ts never forwards it)
 curl -s -X POST localhost:8080/api/capabilities/refunds.issue/invoke \
