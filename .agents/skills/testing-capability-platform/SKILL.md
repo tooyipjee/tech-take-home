@@ -1,6 +1,6 @@
 ---
 name: testing-capability-platform
-description: How to run and end-to-end test the capability-based internal tool platform (kernel runtime, kyc.* capabilities, KYC review queue app, React console) locally, including adversarial guardrail probes.
+description: How to run and end-to-end test Rangka, the capability-based internal tool platform, (kernel runtime, kyc.* capabilities, KYC review queue app, React console) locally, including adversarial guardrail probes.
 ---
 
 # Testing the capability platform

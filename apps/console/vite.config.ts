@@ -9,8 +9,8 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@platform/sdk": here("../../packages/sdk/src/index.ts"),
-      "@platform/app-kit": here("../../packages/app-kit/src/index.ts"),
+      "@rangka/sdk": here("../../packages/sdk/src/index.ts"),
+      "@rangka/app-kit": here("../../packages/app-kit/src/index.ts"),
     },
   },
   server: {

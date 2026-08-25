@@ -1,7 +1,9 @@
-# Internal Tool Platform
+# Rangka
 
-![The console's Apps tab: the KYC review queue discovered from its app.json, signed in as a
-compliance officer](docs/images/launcher.png)
+*rangka* — Malay for the frame: the thing apps are hung on, and the reason heavy loads move safely.
+
+![The console's Apps tab: the KYC review queue and the SAR desk, each discovered from its app.json,
+signed in as a compliance officer](docs/images/launcher.png)
 
 One framework, one Postgres database, back-office apps talking to it — and a layer in between
 that decides what each app is allowed to do.
@@ -11,8 +13,8 @@ The apps are written by Devin, so nothing load-bearing may live in them: an app 
 it needs a second person's approval, and where its effect lands. The runtime enforces that
 declaration; the app cannot bypass it, because the app never touches the database.
 
-Today the repository contains exactly one app, the KYC review queue, and the whole platform is
-proved against it.
+Today the repository contains one domain, KYC, and two apps over it — the review queue and the SAR
+desk — and the whole platform is proved against them.
 
 ```
 apps/kyc-review          a screen, written by Devin
@@ -33,12 +35,12 @@ refused in the same place, once.
 ```bash
 npm install
 npm run setup     # Postgres in Docker, migrate, seed
-npm run dev       # api :8080 · console :5173 · kyc review queue :5174
+npm run dev       # api :8080 · console :5173 · every app folder, on its own port
 ```
 
 Open the console at <http://localhost:5173>. Its **Apps** tab is the launcher: every app folder's
-`app.json` becomes a tile, offered or locked according to the signed-in principal's scopes — today
-there is one, the KYC review queue. The **signed in as** switcher in the header is a mock identity
+`app.json` becomes a tile, offered or locked according to the signed-in principal's scopes. The
+**signed in as** switcher in the header is a mock identity
 provider: it picks the principal (Avery, reviewer · Sam, lead · Robin and Dana, compliance), the API
 reads it from the `x-platform-user` header, and it stands in for an OAuth2/OIDC sign-in (swapping it
 for the real thing changes `resolvePrincipal` and nothing else). Two compliance officers exist
@@ -69,19 +71,23 @@ When a tier-1 request needs a verb that does not exist, the correct outcome is t
 `npm run lint` prints the tier it detected and the label to apply, so the classification is not a
 judgement call at PR time.
 
-## The playbooks
+## The playbook
 
-Devin writes the apps, so the playbooks *are* the interface to this repository. There is one per
-tier:
+Devin writes the apps, so [the playbook](docs/devin/playbook.md) *is* the interface to this
+repository — and there is exactly one, because the person asking for a screen should not have to
+know which tier their request is. The playbook works that out and escalates itself:
 
-- **[Tier 1 — build an app](docs/devin/playbook-build-an-app.md).** Starts by deciding whether the
-  request is tier 1 at all, maps every screen action to an existing capability, and refuses to
-  invent one. The output is a folder under `apps/` and a PR labelled `tier-1: app`.
-- **[Tier 2 — extend the platform](docs/devin/playbook-extend-the-platform.md).** The only route by
-  which a capability, scope, migration or invariant may change: spec first, invariants named in
-  English before any SQL, declaration over hand-written rules, adversarial tests, a change record,
-  human sign-off. The output is a PR labelled `tier-2: platform`.
-- Tier 3 has no playbook on purpose. Infrastructure changes are agreed with a platform owner first.
+1. **Triage.** Does an app already do this? Can an existing app be extended instead of adding a
+   tile? If not, which tier is it? The verdict goes in the first message, before any code.
+2. **Tier 1** — compose existing capabilities into a folder under `apps/`, and open a PR labelled
+   `tier-1: app`.
+3. **Tier 2** — build it *and* say so loudly: spec first, invariants named in English before any
+   SQL, declaration over hand-written rules, adversarial tests, a change record, and a PR labelled
+   `tier-2: platform` that opens with what the platform can now promise and asks for a second pair
+   of eyes on the declaration rather than the diff. Then the UI over the new verbs is ordinary
+   tier-1 work.
+4. **Tier 3** — stop. Infrastructure is agreed with a platform owner first; that is why there is no
+   phase for it.
 
 [Two apps, two tiers](docs/devin/demo-two-apps.md) works through what this means for the next two
 apps: a feature-flag admin is a cheap tier-2 extension followed by a tier-1 screen; a refunds
@@ -188,7 +194,7 @@ them, refusals included.
 | `apps/kyc-review` | KYC review queue — the app |
 
 `packages/*` is the platform: the trust boundary, the data layer, and the only surfaces an app may
-import (`@platform/sdk`, `@platform/app-kit`). `apps/*` is everything above it, one folder per
+import (`@rangka/sdk`, `@rangka/app-kit`). `apps/*` is everything above it, one folder per
 deployable. The console is not an app either — it is the platform's own screens plus a launcher.
 
 **A new app is a new folder.** Copy the shape of `apps/kyc-review`: a `package.json`, an
@@ -196,7 +202,7 @@ deployable. The console is not an app either — it is the platform's own screen
 (name, url, scopes). That is the whole ceremony: nothing lists the apps. `npm run dev`,
 `npm run build:apps`, `npm run typecheck`, the boundary check and the console launcher all
 discover every folder under `apps/`, so a new app runs, builds, typechecks, is held to
-`@platform/sdk` and appears on the launcher from its first commit without anyone remembering to
+`@rangka/sdk` and appears on the launcher from its first commit without anyone remembering to
 wire it up — and `npm run lint` fails if its `app.json` points at the wrong port or claims a scope
 no role holds. Restart `npm run dev` after adding the folder: the new app needs its dev server,
 and the console's Vite watcher only re-globs `app.json` files on startup.
@@ -222,8 +228,7 @@ and the console's Vite watcher only re-globs `app.json` files on startup.
 - [KYC review queue](docs/apps/kyc-review-queue.md) — the app, its capabilities and its policy
 - [Authoring a capability](docs/authoring-a-capability.md) — the workflow humans and Devin share
 - [Decisions](docs/adr) — why it is built this way, and what was deliberately not built
-- [Playbook, tier 1](docs/devin/playbook-build-an-app.md) ·
-  [Playbook, tier 2](docs/devin/playbook-extend-the-platform.md) ·
+- [Playbook](docs/devin/playbook.md) ·
   [Two apps, two tiers](docs/devin/demo-two-apps.md)
 - [Platform changes](docs/platform-changes) — what each tier-2 change did to the guarantees
 

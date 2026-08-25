@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ApprovalSummary, CapabilityDescriptor, InvokeResult } from "@platform/sdk";
-import { OutcomeBanner, OutcomeBadge, platform, when } from "@platform/app-kit";
+import type { ApprovalSummary, InvokeResult } from "@rangka/sdk";
+import { OutcomeBanner, platform, when } from "@rangka/app-kit";
 
 interface CaseSummary {
   id: string;
@@ -50,8 +50,7 @@ export function SarDesk({ actorId }: { actorId: string }) {
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<InvokeResult<unknown> | null>(null);
   const [pending, setPending] = useState<ApprovalSummary[]>([]);
-  const [declaration, setDeclaration] = useState<CapabilityDescriptor | null>(null);
-  const [halts, setHalts] = useState<string[]>([]);
+  const [halted, setHalted] = useState(false);
 
   const loadCases = useCallback(async () => {
     const response = await platform.invoke<{ cases: CaseSummary[] }>("kyc.cases.list", {
@@ -78,23 +77,15 @@ export function SarDesk({ actorId }: { actorId: string }) {
   }, [loadCases, loadPending, actorId]);
 
   useEffect(() => {
-    platform
-      .capabilities()
-      .then((all) => setDeclaration(all.find((entry) => entry.name === "kyc.case.sar.file") ?? null))
-      .catch(() => setDeclaration(null));
-  }, []);
-
-  useEffect(() => {
+    // Whether filing is currently halted is the platform's answer, not this screen's:
+    // the reviewer is told they cannot file, and the invariant that stopped it is a
+    // detail for the console, not for the desk.
     platform
       .invariants()
       .then((report) =>
-        setHalts(
-          report.halts
-            .filter((halt) => halt.capability === "kyc.case.sar.file")
-            .map((halt) => halt.invariantId),
-        ),
+        setHalted(report.halts.some((halt) => halt.capability === "kyc.case.sar.file")),
       )
-      .catch(() => setHalts([]));
+      .catch(() => setHalted(false));
   }, [outcome]);
 
   async function open(summary: CaseSummary) {
@@ -141,22 +132,16 @@ export function SarDesk({ actorId }: { actorId: string }) {
     <>
       <h2>Suspicious activity filings</h2>
       <p className="hint">
-        Escalated cases, and the one irreversible verb in the platform. Filing needs{" "}
-        <code>kyc:sar</code>, which only compliance holds, and it is the single capability whose
-        approval rule is <code>always</code> — every filing waits for a second holder of{" "}
-        <code>kyc:sar</code>, who cannot be the person who raised it. A case can be filed once:{" "}
-        <code>oncePerSubject</code> is a unique index and a derived invariant, not a check in this
-        screen.
+        Escalated cases that may need a report. A filing cannot be undone, so every one is
+        countersigned by a second compliance officer — never the person who raised it — and a
+        case can only be filed once.
       </p>
-      <Declaration descriptor={declaration} />
-      {halts.length > 0 ? (
+      {halted ? (
         <div className="outcome-banner bad">
-          <strong>halted</strong>
+          <strong>Filing paused</strong>
           <div>
-            <code>
-              <code>kyc.case.sar.file</code> is refusing writes while {halts.join(", ")} is violated.
-              Only an admin holding <code>invariants:clear</code> can resume it, once it passes again.
-            </code>
+            Filing is paused while compliance investigates a discrepancy. Reading cases is
+            unaffected; an administrator has to resume it.
           </div>
         </div>
       ) : null}
@@ -200,9 +185,7 @@ export function SarDesk({ actorId }: { actorId: string }) {
           ))}
           {cases.length === 0 ? (
             <tr>
-              <td colSpan={7}>
-                <code>no escalated cases readable — see the outcome above</code>
-              </td>
+              <td colSpan={7}>No escalated cases to show.</td>
             </tr>
           ) : null}
         </tbody>
@@ -214,16 +197,9 @@ export function SarDesk({ actorId }: { actorId: string }) {
             Filing for <code>{selected.reference}</code>
           </h2>
           <p className="hint">
-            {requirement ? (
-              <>
-                The runtime will hold this: {requirement.reason} Decider must hold{" "}
-                <code>{requirement.approverScope}</code>.
-              </>
-            ) : (
-              <>The runtime reports no approval requirement for a decision on this case.</>
-            )}{" "}
-            Read at revision {selected.revision}; if the case moves before you submit, the platform
-            refuses the stale write rather than filing against a case you did not read.
+            {requirement ? requirement.reason : "This filing waits for a second compliance officer."}{" "}
+            If someone else changes the case before you submit, your filing is refused rather than
+            recorded against a case you did not read.
           </p>
           <table>
             <thead>
@@ -253,9 +229,7 @@ export function SarDesk({ actorId }: { actorId: string }) {
               ))}
               {selected.screeningHits.length === 0 ? (
                 <tr>
-                  <td colSpan={5}>
-                    <code>no screening hits on this case</code>
-                  </td>
+                  <td colSpan={5}>No screening hits on this case.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -277,19 +251,15 @@ export function SarDesk({ actorId }: { actorId: string }) {
 
       <h2>Awaiting a second signature</h2>
       <p className="hint">
-        Raised filings, held by the runtime with the handler not yet run. The approver scope was
-        fixed onto the request when it was raised, so a later edit to the declaration cannot lower
-        the bar for anything already waiting. A requester deciding their own request is refused by
-        the platform.
+        Filings that have been drafted and are waiting for another compliance officer. Nothing is
+        reported until someone else signs, and you cannot sign your own.
       </p>
       <table>
         <thead>
           <tr>
-            <th>Request</th>
             <th>Case</th>
             <th>Raised by</th>
-            <th>Needs</th>
-            <th>Why</th>
+            <th>Why it waits</th>
             <th>Raised</th>
             <th />
           </tr>
@@ -297,20 +267,10 @@ export function SarDesk({ actorId }: { actorId: string }) {
         <tbody>
           {pending.map((request) => (
             <tr key={request.id}>
-              <td>
-                <code>{request.id}</code>
-              </td>
-              <td>
-                <code>{String(request.input.caseId ?? "—")}</code>
-              </td>
+              <td>{String(request.input.caseId ?? "—")}</td>
               <td>{request.requestedByName}</td>
-              <td>
-                <code>{request.approverScope}</code>
-              </td>
               <td>{request.reason}</td>
-              <td>
-                <code>{when(request.createdAt)}</code>
-              </td>
+              <td>{when(request.createdAt)}</td>
               <td>
                 <button
                   className="action"
@@ -331,32 +291,11 @@ export function SarDesk({ actorId }: { actorId: string }) {
           ))}
           {pending.length === 0 ? (
             <tr>
-              <td colSpan={7}>
-                <code>nothing waiting, or this role cannot read approvals</code>
-              </td>
+              <td colSpan={5}>Nothing is waiting for a signature.</td>
             </tr>
           ) : null}
         </tbody>
       </table>
-      {outcome ? (
-        <p className="hint">
-          last outcome <OutcomeBadge outcome={outcome.outcome} />
-        </p>
-      ) : null}
     </>
-  );
-}
-
-/**
- * The policy the registry serves, rendered rather than restated, so a change to the
- * declaration reaches this screen without an edit here.
- */
-function Declaration({ descriptor }: { descriptor: CapabilityDescriptor | null }) {
-  if (!descriptor) return null;
-  return (
-    <p className="hint">
-      <span className="badge">{descriptor.name}</span>{" "}
-      <code>{JSON.stringify(descriptor.policy)}</code>
-    </p>
   );
 }

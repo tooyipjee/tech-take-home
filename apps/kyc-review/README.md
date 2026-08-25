@@ -12,7 +12,7 @@ npm run setup    # Postgres in Docker, migrations, seed
 npm run dev      # API :8080, console :5173, this app :5174
 ```
 
-The app talks to the platform API over `@platform/sdk`; Vite proxies `/api` to the API host. There is
+The app talks to the platform API over `@rangka/sdk`; Vite proxies `/api` to the API host. There is
 no in-app kernel and no fixtures — an app-side copy of the rules would be free to disagree with the
 copy that is enforced, and the point of the platform is that it cannot.
 

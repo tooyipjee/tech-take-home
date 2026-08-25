@@ -1,11 +1,11 @@
 :root {
-  --bg: #0e1117;
-  --panel: #161b24;
-  --panel-2: #1d2331;
-  --line: #2a3242;
-  --text: #e6e9ef;
-  --muted: #8d97a8;
-  --accent: #4c8dff;
+  --bg: #0b0d12;
+  --panel: #14171f;
+  --panel-2: #1a1e28;
+  --line: #252a36;
+  --text: #eceef4;
+  --muted: #8f97a8;
+  --accent: #7cb0ff;
   --ok: #3fb27f;
   --warn: #e0a33a;
   --danger: #e05a5a;
@@ -18,9 +18,11 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: radial-gradient(1100px 520px at 12% -10%, #1b2333 0%, transparent 60%), var(--bg);
+  min-height: 100vh;
   color: var(--text);
   font-size: 14px;
+  -webkit-font-smoothing: antialiased;
 }
 
 code {
@@ -36,8 +38,9 @@ code {
   display: flex;
   align-items: center;
   gap: 24px;
-  padding: 12px 20px;
-  background: var(--panel);
+  padding: 14px 28px;
+  background: rgba(20, 23, 31, 0.85);
+  backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--line);
   position: sticky;
   top: 0;
@@ -46,7 +49,40 @@ code {
 
 .brand {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand__mark {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.brand__words {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.brand__words strong {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: 0.2px;
+}
+
+.brand__app {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.brand__app::before {
+  content: '/';
+  margin-right: 8px;
+  color: var(--line);
 }
 
 .nav {
@@ -74,10 +110,52 @@ code {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  padding: 5px 12px 5px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-2);
+  cursor: pointer;
 }
 
-.identity label,
+.identity:hover {
+  border-color: #333c4e;
+}
+
+.identity__avatar {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: linear-gradient(150deg, #2b62b8, #1d3a6e);
+  color: #eaf2ff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+.identity__words {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.identity__words select {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.identity__role {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .filters label {
   display: flex;
   align-items: center;

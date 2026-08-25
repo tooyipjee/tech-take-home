@@ -1,5 +1,5 @@
-import { withClient } from "@platform/db";
-import type { PgClient } from "@platform/db";
+import { withClient } from "@rangka/db";
+import type { PgClient } from "@rangka/db";
 import { checkInvariant, describeViolations, getInvariant, invariants, invariantsHalting } from "./invariants.ts";
 import type { Invariant, InvariantViolation } from "./invariants.ts";
 import type { Principal } from "./types.ts";

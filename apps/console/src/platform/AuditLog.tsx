@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AuditEntry } from "@platform/sdk";
-import { money, OutcomeBadge, platform, when } from "@platform/app-kit";
+import type { AuditEntry } from "@rangka/sdk";
+import { money, OutcomeBadge, platform, when } from "@rangka/app-kit";
 
 export function AuditLog({ actorId }: { actorId: string }) {
   const [entries, setEntries] = useState<AuditEntry[]>([]);

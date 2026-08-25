@@ -11,8 +11,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, test } from "node:test";
-import { migrate, pool, resetAndSeed, withClient, withTransaction } from "@platform/db";
-import type { PgClient } from "@platform/db";
+import { migrate, pool, resetAndSeed, withClient, withTransaction } from "@rangka/db";
+import type { PgClient } from "@rangka/db";
 import { decideApproval, invoke } from "../../src/index.ts";
 import { syncRegistry } from "../../src/audit.ts";
 import { resolvePrincipal } from "../../src/auth.ts";
@@ -33,7 +33,7 @@ let admin: Principal;
 
 before(async () => {
   await migrate();
-  await import("@platform/capabilities");
+  await import("@rangka/capabilities");
 });
 
 beforeEach(async () => {

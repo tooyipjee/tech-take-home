@@ -1,12 +1,14 @@
 import { withClient } from "./pool.ts";
 
 const users = [
-  { id: "u_agent", email: "avery@fin.example", name: "Avery Nolan (KYC Reviewer)", role: "agent" },
-  { id: "u_supervisor", email: "sam@fin.example", name: "Sam Okafor (KYC Lead)", role: "supervisor" },
-  { id: "u_admin", email: "robin@fin.example", name: "Robin Vale (Compliance)", role: "admin" },
+  // Names are names: the role is a separate field, and every surface that needs to
+  // show it reads it from there rather than from a string a human typed.
+  { id: "u_agent", email: "avery@fin.example", name: "Avery Nolan", role: "agent" },
+  { id: "u_supervisor", email: "sam@fin.example", name: "Sam Okafor", role: "supervisor" },
+  { id: "u_admin", email: "robin@fin.example", name: "Robin Vale", role: "admin" },
   // Four-eyes needs two holders of every approver scope, or an approval only one
   // person can raise is an approval nobody can decide.
-  { id: "u_admin_2", email: "dana@fin.example", name: "Dana Whitfield (Compliance)", role: "admin" },
+  { id: "u_admin_2", email: "dana@fin.example", name: "Dana Whitfield", role: "admin" },
 ];
 
 interface SeedCase {

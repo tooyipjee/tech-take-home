@@ -1,5 +1,5 @@
-import type { InvokeResult, PlatformClient } from '@platform/sdk';
-import { createClient } from '@platform/sdk';
+import type { InvokeResult, PlatformClient } from '@rangka/sdk';
+import { createClient } from '@rangka/sdk';
 import type { Actor, CapabilityOutput, CapabilityName, KycApproval } from './contracts';
 
 /**

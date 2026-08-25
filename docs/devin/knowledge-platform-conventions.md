@@ -1,9 +1,9 @@
-# Knowledge note — internal tool platform conventions
+# Knowledge note — Rangka conventions
 
 Draft body for a knowledge note scoped to this repository.
 
 **The trust boundary is the whole design.** Apps are generated and therefore untrusted. Apps call
-capabilities through `@platform/sdk`; capabilities declare policy and the runtime enforces it.
+capabilities through `@rangka/sdk`; capabilities declare policy and the runtime enforces it.
 Authorisation, amount ceilings, rate limits, idempotency, approvals and audit are runtime
 concerns. Code that re-implements any of them in an app or a handler is wrong even when it works.
 
@@ -12,7 +12,7 @@ surface · `packages/db` migrations, seed and `DataSource` · `packages/sdk` the
 an app may use, alongside `packages/app-kit` (bound client, identity switcher, outcome banner,
 stylesheet) · `apps/api` Fastify host · `apps/console` the platform's own screens plus a launcher.
 An app is a folder under `apps/` with its own Vite config, port, `tsconfig.json` and `app.json` —
-today only `apps/kyc-review`, the KYC review queue.
+today `apps/kyc-review` (the review queue) and `apps/sar-desk` (filing SARs, countersigned).
 
 **A new app is a new folder, and nothing else.** Nothing lists the apps: `npm run dev`,
 `npm run build:apps`, `npm run typecheck`, the boundary check (`scripts/apps.mjs`) and the console
@@ -24,15 +24,15 @@ what the launcher uses to offer or lock the tile). `npm run lint` checks all of 
 that every scope named is one some role actually holds — a scope nobody can be granted means a
 permanently locked tile, and is a tier-2 escalation rather than a manifest edit.
 
-**Three tiers of work, and every PR carries the label.** Building an app on top of the existing
-capabilities and invariants is tier 1, `tier-1: app`
-(`docs/devin/playbook-build-an-app.md`). Changing the kernel, the invariants, a migration, the
-capability set, the SDK or the check scripts is tier 2, `tier-2: platform`
-(`docs/devin/playbook-extend-the-platform.md`): more tests, a change record under
+**One playbook, three tiers of work, and every PR carries the label.** `docs/devin/playbook.md`
+triages the request — does an app already do this, can an existing app be extended, and which tier
+is it — then builds and escalates itself. Building an app on top of the existing
+capabilities and invariants is tier 1, `tier-1: app`. Changing the kernel, the invariants, a migration, the
+capability set, the SDK or the check scripts is tier 2, `tier-2: platform`: more tests, a change record under
 `docs/platform-changes/`, and an explicit human review. Changing CI, the API host, the console
 shell and launcher, the build tooling or the root configs is tier 3, `tier-3: infrastructure` —
-elevated work owned by the platform team, with no playbook on purpose; split it out of an app or
-capability PR, or agree it with a platform owner first.
+elevated work owned by the platform team, and the playbook stops rather than doing it; split it
+out of an app or capability PR, or agree it with a platform owner first.
 
 `npm run lint` enforces the tier-2 boundary (a platform edit with no change record fails), prints
 the tier it detected and the label to apply, and `node scripts/check-tier.mjs --label` prints the
@@ -41,7 +41,9 @@ labels on first use. The highest tier the diff reaches wins, so a PR touching CI
 infrastructure PR. Tier 3 is labelled, not blocked: a script cannot tell who you are, and
 pretending otherwise would make a social boundary look mechanical.
 
-**Which tier a request is.** Only existing verbs, new UI → tier 1. A capability, scope, table,
+**Triage before tier.** First ask whether an existing app already does the job, or is one panel
+away from doing it — extending `apps/kyc-review` or `apps/sar-desk` beats a second tile over the
+same verbs. Only then classify. Only existing verbs, new UI → tier 1. A capability, scope, table,
 column, seed row, ceiling, rate or approval threshold that does not exist → tier 2 first, then
 tier 1 for the screen. Because the repository has exactly one domain (KYC), *any* new domain —
 refunds, feature flags, chargebacks — starts at tier 2; see `docs/devin/demo-two-apps.md`, which

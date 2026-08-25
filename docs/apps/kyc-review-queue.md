@@ -1,13 +1,13 @@
 # KYC Review Queue — app spec
 
-An app on the internal tool platform. It is ordinary TypeScript UI code with **no database access, no
+An app on Rangka. It is ordinary TypeScript UI code with **no database access, no
 vendor SDKs, and no privileged network egress**. Everything it does happens through capabilities the
 platform kernel enforces: `authz → limits → idempotency → approval → execute → audit`.
 
 The point of choosing KYC as the first real app: it is the worst case for an internal tool. It touches
 raw PII, it produces regulator-visible decisions, some of its actions are irreversible, and the people
-using it are the ones most likely to be socially engineered. If the platform's guardrails hold here,
-refunds and feature flags are trivial.
+using it are the ones most likely to be socially engineered. If Rangka's guardrails hold here, refunds
+and feature flags are trivial.
 
 ## What the app does
 
@@ -55,12 +55,12 @@ capability:
 
 The requester may never approve their own request, and the check is on user id, not display name.
 
-**This is the one thing the kernel cannot yet express.** `ApprovalRule` is `never | always |
-above_amount`, all of which are functions of the *input*; KYC's rule is a function of the *record being
-acted on*. The mock derives it in the KYC runtime and the descriptors carry it as a `derivedApproval`
-note, but registering these capabilities for real needs either a predicate rule
-(`{ mode: "derived", resolve(ctx, input) }`) or a handler that returns a required approver scope. Until
-that lands, the descriptors are honest about what the platform would and would not enforce.
+**This is what `approval: { mode: "derived_from_subject" }` exists for.** The rule is a function of the
+*record being acted on*, not of the input, so it is declared as SQL clauses over the subject row rather
+than resolved in a handler: each clause carries the `approverScope` it demands and a `because` the UI can
+show, first match wins, and the resolved scope is written onto the approval row so later edits to the
+clauses cannot lower the bar on a request already waiting. The same clauses are re-evaluated over
+committed data by the `carries_the_declared_approval` invariant, so the rule is proved, not merely applied.
 
 `pending_approval` is a first-class result the app renders, not an error. The decision is recorded as
 *requested* immediately, so the audit trail shows intent even when approval is later denied.
@@ -87,21 +87,16 @@ idempotency key derives from it, so a double-clicked approve is one effect.
 
 ## Frontend
 
-`apps/kyc-review` is a Vite + React app whose only platform dependency is `@platform/sdk`. It talks to a
-`PlatformClient` narrowed to KYC's capability map (`src/platform/client.ts`), so `invoke` is typed per
-capability while the transport, outcomes, approvals and audit are the platform's. Two adapters implement
-it:
-
-- **mock** (default) — an in-browser implementation of the kernel: authz → validation → limits →
-  idempotency → approval → execute → audit against seeded fixtures, returning the same `Outcome` values
-  as the real runtime. It exists so the app can be demoed before KYC capabilities are registered, and so
-  the policy behaviour is testable without Postgres.
-- **http** — `createClient()` from the SDK, which posts to `POST /api/capabilities/:name/invoke` with
-  `{ input, idempotencyKey }` and the `x-platform-user` dev identity header. Selected with `?adapter=api`.
+`apps/kyc-review` is a Vite + React app whose only platform dependencies are `@rangka/sdk` and
+`@rangka/app-kit`. It talks to a `PlatformClient` narrowed to KYC's capability map
+(`src/platform/client.ts`), so `invoke` is typed per capability while the transport, outcomes, approvals
+and audit are the platform's: `createClient()` posts to `POST /api/capabilities/:name/invoke` with
+`{ input, idempotencyKey }` and the `x-platform-user` identity header. There is no mock — the app runs
+against the real runtime and the real Postgres, which is the only version worth demoing.
 
 Approvals and audit are read through the platform surfaces (`approvals()`, `decide()`, `audit()`) rather
-than KYC-specific capabilities, so an approval raised by this app is decided in the same inbox as a
-refund. Any divergence between the two adapters is a bug in the mock.
+than KYC-specific capabilities, so an approval raised by this app is decided in the same inbox as one
+raised by any other.
 
 ## What this proves about the platform
 
@@ -109,4 +104,5 @@ refund. Any divergence between the two adapters is a bug in the mock.
 2. Dangerous actions are gated by data-derived policy, not by UI affordances — hiding a button is not a
    control, and the app does not pretend it is.
 3. Every effect has an audit row before the user sees a result.
-4. The same app code runs against a mock kernel and the real one, which is what makes it reviewable.
+4. The screen can be rewritten, or replaced by another app over the same verbs, without any of the above
+   changing — which is what makes generated app code safe to accept.

@@ -1,4 +1,4 @@
-import type { PgClient } from "@platform/db";
+import type { PgClient } from "@rangka/db";
 import type { Principal, Role } from "./types.ts";
 
 /**

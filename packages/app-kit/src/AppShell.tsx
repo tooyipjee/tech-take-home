@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
-import type { PlatformUser } from "@platform/sdk";
+import type { PlatformUser } from "@rangka/sdk";
 import { platform, setActingUser } from "./client.ts";
+import { Brand, initials, roleTitle } from "./Brand.tsx";
 
 /**
- * The chrome every app shares: who you are acting as, and how many scopes that
- * grants. Identity comes from the platform's user list, not from the app, so an
+ * The chrome every app shares: the platform mark, the app's name, and who you are
+ * acting as. Identity comes from the platform's user list, not from the app, so an
  * app cannot invent a principal for itself.
  */
 export function AppShell({
@@ -36,20 +37,26 @@ export function AppShell({
   return (
     <>
       <header className="shell">
-        <h1>{title}</h1>
-        {note ? <span className="badge">{note}</span> : null}
+        <Brand app={title} />
+        {note ? <span className="shell-tagline">{note}</span> : null}
         <span className="spacer" />
-        <label htmlFor="actor">
-          <code>acting as</code>
+        <label className="identity" htmlFor="actor">
+          <span className="avatar" aria-hidden="true">
+            {current ? initials(current.name) : "··"}
+          </span>
+          <span className="identity-words">
+            <select id="actor" value={userId} onChange={(event) => switchUser(event.target.value)}>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+            <span className="identity-role">
+              {current ? roleTitle(current.role) : "signing in…"}
+            </span>
+          </span>
         </label>
-        <select id="actor" value={userId} onChange={(event) => switchUser(event.target.value)}>
-          {users.map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.name}
-            </option>
-          ))}
-        </select>
-        <span className="badge">{current ? `${current.scopes.length} scopes` : "…"}</span>
       </header>
       <main>
         <section className="panel">{children(userId)}</section>

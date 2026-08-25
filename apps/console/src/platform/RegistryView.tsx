@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { CapabilityDescriptor } from "@platform/sdk";
-import { platform } from "@platform/app-kit";
+import type { CapabilityDescriptor } from "@rangka/sdk";
+import { platform } from "@rangka/app-kit";
 
 export function RegistryView() {
   const [capabilities, setCapabilities] = useState<CapabilityDescriptor[]>([]);

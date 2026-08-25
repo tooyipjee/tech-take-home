@@ -1,8 +1,7 @@
 # Authoring a capability
 
 Adding a capability is **tier-2 work**: it changes what the platform can promise, so it runs
-under [`docs/devin/playbook-extend-the-platform.md`](devin/playbook-extend-the-platform.md) and
-needs a change record under `docs/platform-changes/`. This page is the shape of the artifact;
+under phase C of [the playbook](devin/playbook.md) and needs a change record under `docs/platform-changes/`. This page is the shape of the artifact;
 the playbook is the procedure and the review it must pass.
 
 The workflow the platform is designed around:

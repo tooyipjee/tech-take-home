@@ -13,7 +13,7 @@ description: How to run and UI-test the kyc-review app (apps/kyc-review), which 
   npm run dev       # api :8080 · console :5173 · kyc :5174
   ```
   `npx vite --config apps/kyc-review/vite.config.ts` alone will render "Connecting to the platform…" forever without the API.
-- Checks: `npm run -w @align/kyc-review lint` and `npm run -w @align/kyc-review build`.
+- Checks: `npm run -w @rangka/kyc-review lint` and `npm run -w @rangka/kyc-review build`.
 - Do not reach for `pnpm` here; the root workspace is npm, and corepack has broken signature keys on
   Devin boxes.
 

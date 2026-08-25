@@ -14,11 +14,11 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
-      "@platform/kernel": ["packages/kernel/src/index.ts"],
-      "@platform/db": ["packages/db/src/index.ts"],
-      "@platform/capabilities": ["packages/capabilities/src/index.ts"],
-      "@platform/sdk": ["packages/sdk/src/index.ts"],
-      "@platform/app-kit": ["packages/app-kit/src/index.ts"]
+      "@rangka/kernel": ["packages/kernel/src/index.ts"],
+      "@rangka/db": ["packages/db/src/index.ts"],
+      "@rangka/capabilities": ["packages/capabilities/src/index.ts"],
+      "@rangka/sdk": ["packages/sdk/src/index.ts"],
+      "@rangka/app-kit": ["packages/app-kit/src/index.ts"]
     }
   },
   "include": ["packages/**/*.ts", "apps/api/**/*.ts", "scripts/**/*.mjs"],

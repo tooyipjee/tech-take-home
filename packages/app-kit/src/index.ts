@@ -11,3 +11,4 @@ export { platform, setActingUser, getActingUser } from "./client.ts";
 export { money, when } from "./format.ts";
 export { OutcomeBanner, OutcomeBadge } from "./Outcome.tsx";
 export { AppShell } from "./AppShell.tsx";
+export { Brand, initials, roleTitle } from "./Brand.tsx";

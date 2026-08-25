@@ -1,6 +1,6 @@
 import { usePlatform, usePlatformData } from '../platform/PlatformProvider';
 import type { KycApproval } from '../platform/contracts';
-import { approvalCaseId } from '../platform/contracts';
+import { actionLabel, approvalCaseId } from '../platform/contracts';
 import { Empty, Section, relativeTime } from '../components/ui';
 
 /**
@@ -44,7 +44,7 @@ export function ApprovalsView({ onOpen }: { onOpen: (caseId: string) => void }) 
                   </span>
                 </div>
                 <p className="muted">
-                  <code>{request.capability}</code> · requested by {request.requestedByName}
+                  {actionLabel(request.capability)} · requested by {request.requestedByName}
                 </p>
               </li>
             ))}
@@ -71,7 +71,7 @@ function ApprovalRow({ request, onOpen }: { request: KycApproval; onOpen: (caseI
       <div className="row">
         <strong>{request.reason}</strong>
         <span className="spacer" />
-        <span className="pill pill--awaiting_approval">needs {request.approverScope}</span>
+        <span className="pill pill--awaiting_approval">needs a second reviewer</span>
       </div>
       <p className="muted">
         {caseId ? (
@@ -79,19 +79,21 @@ function ApprovalRow({ request, onOpen }: { request: KycApproval; onOpen: (caseI
             {caseId}
           </button>
         ) : null}{' '}
-        · <code>{request.capability}</code> · requested by {request.requestedByName}{' '}
+        · {actionLabel(request.capability)} · requested by {request.requestedByName}{' '}
         {relativeTime(request.createdAt)}
       </p>
       {isRequester ? (
         <p className="banner banner--denied">
-          You raised this request. Four-eyes means someone else must decide it — the runtime will deny you.
+          You raised this request, so someone else has to decide it.
         </p>
       ) : null}
+      {/*
+        The buttons below stay enabled on purpose: the runtime is the control, and a
+        reviewer who presses one gets the platform's refusal rather than a screen
+        quietly deciding on its behalf.
+      */}
       {!isRequester && !canDecide ? (
-        <p className="banner banner--denied">
-          Deciding this needs <code>{request.approverScope}</code>, which {actor.role} does not hold. The buttons stay
-          enabled because the runtime, not the UI, is the control.
-        </p>
+        <p className="banner banner--denied">Your role cannot decide this request.</p>
       ) : null}
       <div className="row">
         <span className="spacer" />

@@ -1,5 +1,5 @@
-import { defineRead, defineWrite, previewApproval } from "@platform/kernel";
-import type { ApprovalRule } from "@platform/kernel";
+import { defineRead, defineWrite, previewApproval } from "@rangka/kernel";
+import type { ApprovalRule } from "@rangka/kernel";
 import { z } from "zod";
 
 /**

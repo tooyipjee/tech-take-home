@@ -1,5 +1,5 @@
 {
-  "name": "@align/kyc-review",
+  "name": "@rangka/kyc-review",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "lint": "eslint src --ext .ts,.tsx"
   },
   "dependencies": {
-    "@platform/sdk": "*",
+    "@rangka/sdk": "*",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },

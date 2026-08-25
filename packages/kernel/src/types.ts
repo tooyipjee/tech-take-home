@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { DataSource } from "@platform/db";
+import type { DataSource } from "@rangka/db";
 
 export type Role = "agent" | "supervisor" | "admin";
 

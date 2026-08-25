@@ -30,8 +30,16 @@ function Shell() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <strong>KYC Review Queue</strong>
-          <span className="muted">an app on the Align capability platform</span>
+          <svg className="brand__mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <rect x="2.5" y="2.5" width="19" height="19" rx="5" />
+            <path d="M2.5 9.5h19" />
+            <path d="M8.5 9.5v12" />
+            <path d="M15.5 9.5v12" />
+          </svg>
+          <span className="brand__words">
+            <strong>Rangka</strong>
+            <span className="brand__app">KYC review queue</span>
+          </span>
         </div>
         <nav className="nav">
           {(
@@ -54,19 +62,30 @@ function Shell() {
             </button>
           ))}
         </nav>
-        <div className="identity">
-          <label>
-            Acting as
+        {/*
+          Development sign-in: this switcher stands in for an OAuth/OIDC redirect.
+          The scopes it grants are the platform's business, not the reviewer's, so
+          they are not on screen — a refusal explains itself when one is missing.
+        */}
+        <label className="identity" title="Development sign-in — stands in for OAuth/OIDC">
+          <span className="identity__avatar" aria-hidden="true">
+            {actor.name
+              .split(' ')
+              .slice(0, 2)
+              .map((part) => part[0]?.toUpperCase() ?? '')
+              .join('')}
+          </span>
+          <span className="identity__words">
             <select value={actor.id} onChange={(event) => setActorId(event.target.value)}>
               {directory.map((entry) => (
                 <option key={entry.id} value={entry.id}>
-                  {ROLE_LABEL[entry.role]} · {entry.name}
+                  {entry.name}
                 </option>
               ))}
             </select>
-          </label>
-          <span className="muted scopes">{actor.scopes.join(' ')}</span>
-        </div>
+            <span className="identity__role">{ROLE_LABEL[actor.role]}</span>
+          </span>
+        </label>
       </header>
 
       <main className="main">

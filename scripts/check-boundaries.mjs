@@ -9,9 +9,9 @@ import { portOf, viteApps } from "./apps.mjs";
 
 const FORBIDDEN_IN_APPS = [
   { pattern: /from\s+["']pg["']/, reason: "apps must not open database connections" },
-  { pattern: /from\s+["']@platform\/db["']/, reason: "apps must not import the data layer" },
-  { pattern: /from\s+["']@platform\/kernel["']/, reason: "apps must not import the kernel" },
-  { pattern: /from\s+["']@platform\/capabilities["']/, reason: "apps must not import capability handlers" },
+  { pattern: /from\s+["']@rangka\/db["']/, reason: "apps must not import the data layer" },
+  { pattern: /from\s+["']@rangka\/kernel["']/, reason: "apps must not import the kernel" },
+  { pattern: /from\s+["']@rangka\/capabilities["']/, reason: "apps must not import capability handlers" },
   { pattern: /\bfetch\s*\(/, reason: "apps must invoke capabilities via the SDK, not raw fetch" },
 ];
 
@@ -109,7 +109,7 @@ for (const app of viteApps()) {
     if (!KNOWN_SCOPES.has(scope)) {
       violations.push(
         `${app.manifest}  scope "${scope}" is held by no role in packages/kernel/src/auth.ts` +
-          `\n    granting it is tier-2 work: see docs/devin/playbook-extend-the-platform.md`,
+          `\n    granting it is tier-2 work: see docs/devin/playbook.md (phase C)`,
       );
     }
   }
