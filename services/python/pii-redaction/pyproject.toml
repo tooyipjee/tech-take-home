@@ -1,0 +1,7 @@
+[project]
+name = "pii-redaction"
+version = "0.1.0"
+description = "Redacts PAN, sort code/account, NI number and email from free text before it is logged."
+requires-python = ">=3.10"
+dependencies = []
+

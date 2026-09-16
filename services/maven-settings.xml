@@ -1,0 +1,10 @@
+<!-- Maven Central via Google's mirror: identical artifacts, no 429s from shared egress IPs. -->
+<settings>
+  <mirrors>
+    <mirror>
+      <id>google-central</id>
+      <mirrorOf>central</mirrorOf>
+      <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+    </mirror>
+  </mirrors>
+</settings>

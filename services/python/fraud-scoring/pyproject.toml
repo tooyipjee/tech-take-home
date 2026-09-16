@@ -1,0 +1,13 @@
+[project]
+name = "fraud-scoring"
+version = "0.1.0"
+description = "Rule-based risk score for a card transaction; above threshold means step-up or block."
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-cov>=5"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=fraud_scoring --cov-report=term-missing --cov-branch"

@@ -1,0 +1,11 @@
+{
+  "name": "@bank/notifications",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chooses channel and template for customer notifications; suppresses PII in push payloads.",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

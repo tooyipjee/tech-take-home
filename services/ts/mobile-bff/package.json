@@ -1,0 +1,12 @@
+{
+  "name": "@bank/mobile-bff",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend-for-frontend for the mobile app: shapes account and transaction data for screens.",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test --experimental-test-coverage \"src/**/*.test.ts\""
+  }
+}

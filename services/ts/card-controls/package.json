@@ -1,0 +1,12 @@
+{
+  "name": "@bank/card-controls",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Card freeze, spend caps and merchant-category blocks.",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test --experimental-test-coverage \"src/**/*.test.ts\""
+  }
+}

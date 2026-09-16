@@ -1,0 +1,11 @@
+{
+  "name": "@bank/onboarding-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Applicant capture and eligibility checks for new current accounts.",
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}
